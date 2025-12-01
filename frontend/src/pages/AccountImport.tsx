@@ -10,7 +10,7 @@ import {
   isValidWalletAddress, 
   isValidPrivateKey,
   isValidMnemonic
-} from '../utils/ethers'
+} from '../utils'
 import { useMediaQuery } from 'react-responsive'
 
 const { Title } = Typography

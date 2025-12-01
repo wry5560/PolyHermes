@@ -7,6 +7,7 @@ import { getPositionKey } from '../types'
 import { useMediaQuery } from 'react-responsive'
 import { useWebSocketSubscription } from '../hooks/useWebSocket'
 import { wsManager } from '../services/websocket'
+import { formatUSDC } from '../utils'
 
 type PositionFilter = 'current' | 'historical'
 type ViewMode = 'card' | 'list'
@@ -611,7 +612,7 @@ const PositionList: React.FC = () => {
                         fontWeight: '500',
                         color: isProfit ? '#52c41a' : '#f5222d'
                       }}>
-                        {pnlNum >= 0 ? '+' : ''}{formatNumber(position.pnl, 2)} USDC
+                        {pnlNum >= 0 ? '+' : ''}{formatUSDC(position.pnl)} USDC
                       </span>
                     </div>
                   )}
@@ -634,7 +635,7 @@ const PositionList: React.FC = () => {
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
                         <span style={{ fontSize: '13px', color: '#666' }}>开仓价值</span>
                         <span style={{ fontSize: '13px', fontWeight: '500' }}>
-                          {formatNumber(position.initialValue, 2)} USDC
+                          {formatUSDC(position.initialValue)} USDC
                         </span>
                       </div>
                       {positionFilter === 'current' && position.currentPrice && (
@@ -648,7 +649,7 @@ const PositionList: React.FC = () => {
                           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
                             <span style={{ fontSize: '13px', color: '#666' }}>当前价值</span>
                             <span style={{ fontSize: '13px', fontWeight: '600' }}>
-                              {formatNumber(position.currentValue, 2)} USDC
+                              {formatUSDC(position.currentValue)} USDC
                             </span>
                           </div>
                         </>
@@ -691,7 +692,7 @@ const PositionList: React.FC = () => {
                         fontWeight: 'bold',
                         color: isProfit ? '#52c41a' : '#f5222d'
                       }}>
-                        {pnlNum >= 0 ? '+' : ''}{formatNumber(position.pnl, 2)} USDC
+                        {pnlNum >= 0 ? '+' : ''}{formatUSDC(position.pnl)} USDC
                       </span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
@@ -718,7 +719,7 @@ const PositionList: React.FC = () => {
                           color: parseFloat(position.realizedPnl) >= 0 ? '#52c41a' : '#f5222d',
                           fontWeight: '500'
                         }}>
-                          {parseFloat(position.realizedPnl) >= 0 ? '+' : ''}{formatNumber(position.realizedPnl, 2)} USDC
+                          {parseFloat(position.realizedPnl) >= 0 ? '+' : ''}{formatUSDC(position.realizedPnl)} USDC
                         </span>
                       </div>
                     )}
@@ -872,7 +873,7 @@ const PositionList: React.FC = () => {
       key: 'initialValue',
       render: (value: string) => (
         <span>
-          {formatNumber(value, 2)} USDC
+          {formatUSDC(value)} USDC
         </span>
       ),
       align: 'right' as const,
@@ -897,7 +898,7 @@ const PositionList: React.FC = () => {
           key: 'currentValue',
           render: (value: string) => (
             <span style={{ fontWeight: 'bold' }}>
-              {formatNumber(value, 2)} USDC
+              {formatUSDC(value)} USDC
             </span>
           ),
           align: 'right' as const,
@@ -928,7 +929,7 @@ const PositionList: React.FC = () => {
                 color: pnlNum >= 0 ? '#3f8600' : '#cf1322',
                 fontWeight: 'bold'
               }}>
-                {pnlNum >= 0 ? '+' : ''}{formatNumber(pnl, 2)} USDC
+                {pnlNum >= 0 ? '+' : ''}{formatUSDC(pnl)} USDC
               </div>
               <div style={{ 
                 fontSize: '12px',
@@ -961,7 +962,7 @@ const PositionList: React.FC = () => {
                 color: pnlNum >= 0 ? '#3f8600' : '#cf1322',
                 fontWeight: 'bold'
               }}>
-                {pnlNum >= 0 ? '+' : ''}{formatNumber(realizedPnl, 2)} USDC
+                {pnlNum >= 0 ? '+' : ''}{formatUSDC(realizedPnl)} USDC
               </div>
               {record.percentRealizedPnl && (
                 <div style={{ 
@@ -1191,7 +1192,7 @@ const PositionList: React.FC = () => {
                   borderColor: '#52c41a'
                 }}
               >
-                赎回 ({redeemableSummary.totalCount}个, {formatNumber(redeemableSummary.totalValue, 2)} USDC)
+                赎回 ({redeemableSummary.totalCount}个, {formatUSDC(redeemableSummary.totalValue)} USDC)
               </Button>
             )}
           </div>
@@ -1214,14 +1215,14 @@ const PositionList: React.FC = () => {
             <span>
               开仓价值合计：{' '}
               <span style={{ fontWeight: 600 }}>
-                {formatNumber(positionTotals.totalInitialValue.toString(), 2)} USDC
+                {formatUSDC(positionTotals.totalInitialValue.toString())} USDC
               </span>
             </span>
             <span>
               当前价值合计：{' '}
               <span style={{ fontWeight: 600 }}>
                 {positionFilter === 'current'
-                  ? `${formatNumber(positionTotals.totalCurrentValue.toString(), 2)} USDC`
+                  ? `${formatUSDC(positionTotals.totalCurrentValue.toString())} USDC`
                   : '-'}
               </span>
             </span>
@@ -1234,7 +1235,7 @@ const PositionList: React.FC = () => {
                 }}
               >
                 {positionTotals.totalPnl >= 0 ? '+' : ''}
-                {formatNumber(positionTotals.totalPnl.toString(), 2)} USDC
+                {formatUSDC(positionTotals.totalPnl.toString())} USDC
               </span>
             </span>
             <span>
@@ -1246,7 +1247,7 @@ const PositionList: React.FC = () => {
                 }}
               >
                 {positionTotals.totalRealizedPnl >= 0 ? '+' : ''}
-                {formatNumber(positionTotals.totalRealizedPnl.toString(), 2)} USDC
+                {formatUSDC(positionTotals.totalRealizedPnl.toString())} USDC
               </span>
             </span>
           </div>
@@ -1460,7 +1461,7 @@ const PositionList: React.FC = () => {
                   color: currentPnl.pnl >= 0 ? '#52c41a' : '#f5222d',
                   marginBottom: '4px'
                 }}>
-                  {currentPnl.pnl >= 0 ? '+' : ''}{currentPnl.pnl.toFixed(2)} USDC
+                  {currentPnl.pnl >= 0 ? '+' : ''}{formatUSDC(currentPnl.pnl)} USDC
                 </div>
                 <div style={{ 
                   fontSize: '14px',
@@ -1500,7 +1501,7 @@ const PositionList: React.FC = () => {
               </Descriptions.Item>
               <Descriptions.Item label="可赎回总价值">
                 <span style={{ fontSize: '18px', fontWeight: 'bold', color: '#52c41a' }}>
-                  {formatNumber(redeemableSummary.totalValue, 2)} USDC
+                  {formatUSDC(redeemableSummary.totalValue)} USDC
                 </span>
               </Descriptions.Item>
               <Descriptions.Item label="涉及账户">

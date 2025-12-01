@@ -5,6 +5,7 @@ import { ArrowLeftOutlined, ReloadOutlined, EditOutlined } from '@ant-design/ico
 import { useAccountStore } from '../store/accountStore'
 import type { Account } from '../types'
 import { useMediaQuery } from 'react-responsive'
+import { formatUSDC } from '../utils'
 
 const { Title } = Typography
 
@@ -212,7 +213,7 @@ const AccountDetail: React.FC = () => {
               <Spin size="small" />
             ) : balance ? (
               <span style={{ fontWeight: 'bold', color: '#1890ff' }}>
-                {balance} USDC
+                {formatUSDC(balance)} USDC
               </span>
             ) : (
               <span style={{ color: '#999' }}>-</span>
@@ -307,7 +308,7 @@ const AccountDetail: React.FC = () => {
                     fontWeight: 'bold',
                     color: account.totalPnl.startsWith('-') ? '#ff4d4f' : '#52c41a'
                   }}>
-                    {account.totalPnl} USDC
+                    {formatUSDC(account.totalPnl)} USDC
                   </span>
                 </Descriptions.Item>
               )}

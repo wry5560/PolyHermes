@@ -3,6 +3,7 @@ import { Card, Row, Col, Statistic, message } from 'antd'
 import { ArrowUpOutlined, ArrowDownOutlined } from '@ant-design/icons'
 import { apiService } from '../services/api'
 import type { Statistics as StatisticsType } from '../types'
+import { formatUSDC } from '../utils'
 
 const Statistics: React.FC = () => {
   const [stats, setStats] = useState<StatisticsType | null>(null)
@@ -48,8 +49,7 @@ const Statistics: React.FC = () => {
           <Card>
             <Statistic
               title="总盈亏"
-              value={stats?.totalPnl || '0'}
-              precision={2}
+              value={formatUSDC(stats?.totalPnl || '0')}
               prefix={stats?.totalPnl && parseFloat(stats.totalPnl) >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
               valueStyle={{ color: stats?.totalPnl && parseFloat(stats.totalPnl || '0') >= 0 ? '#3f8600' : '#cf1322' }}
               suffix="USDC"
@@ -72,8 +72,7 @@ const Statistics: React.FC = () => {
           <Card>
             <Statistic
               title="平均盈亏"
-              value={stats?.avgPnl || '0'}
-              precision={2}
+              value={formatUSDC(stats?.avgPnl || '0')}
               suffix="USDC"
               loading={loading}
             />
@@ -83,8 +82,7 @@ const Statistics: React.FC = () => {
           <Card>
             <Statistic
               title="最大盈利"
-              value={stats?.maxProfit || '0'}
-              precision={2}
+              value={formatUSDC(stats?.maxProfit || '0')}
               prefix={<ArrowUpOutlined />}
               valueStyle={{ color: '#3f8600' }}
               suffix="USDC"
@@ -96,8 +94,7 @@ const Statistics: React.FC = () => {
           <Card>
             <Statistic
               title="最大亏损"
-              value={stats?.maxLoss || '0'}
-              precision={2}
+              value={formatUSDC(stats?.maxLoss || '0')}
               prefix={<ArrowDownOutlined />}
               valueStyle={{ color: '#cf1322' }}
               suffix="USDC"

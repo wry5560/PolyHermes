@@ -5,6 +5,7 @@ import { PlusOutlined, EditOutlined, DeleteOutlined, CopyOutlined } from '@ant-d
 import { apiService } from '../services/api'
 import type { CopyTradingTemplate } from '../types'
 import { useMediaQuery } from 'react-responsive'
+import { formatUSDC } from '../utils'
 
 const { Search } = Input
 
@@ -163,7 +164,7 @@ const TemplateList: React.FC = () => {
         if (record.copyMode === 'RATIO') {
           return `比例 ${record.copyRatio}x`
         } else if (record.copyMode === 'FIXED' && record.fixedAmount) {
-          return `固定 ${parseFloat(record.fixedAmount).toFixed(4)} USDC`
+          return `固定 ${formatUSDC(record.fixedAmount)} USDC`
         }
         return '-'
       }
@@ -331,7 +332,7 @@ const TemplateList: React.FC = () => {
                           {template.copyMode === 'RATIO' 
                             ? `比例 ${template.copyRatio}x`
                             : template.fixedAmount 
-                              ? `固定 ${parseFloat(template.fixedAmount).toFixed(4)} USDC`
+                              ? `固定 ${formatUSDC(template.fixedAmount)} USDC`
                               : '-'
                           }
                         </div>
@@ -343,11 +344,11 @@ const TemplateList: React.FC = () => {
                           <div style={{ fontSize: '12px', color: '#666', marginBottom: '4px' }}>金额限制</div>
                           <div style={{ fontSize: '13px', color: '#333' }}>
                             {template.maxOrderSize && (
-                              <span>最大: {parseFloat(template.maxOrderSize).toFixed(4)} USDC</span>
+                              <span>最大: {formatUSDC(template.maxOrderSize)} USDC</span>
                             )}
                             {template.maxOrderSize && template.minOrderSize && <span> | </span>}
                             {template.minOrderSize && (
-                              <span>最小: {parseFloat(template.minOrderSize).toFixed(4)} USDC</span>
+                              <span>最小: {formatUSDC(template.minOrderSize)} USDC</span>
                             )}
                             {!template.maxOrderSize && !template.minOrderSize && <span style={{ color: '#999' }}>未设置</span>}
                           </div>

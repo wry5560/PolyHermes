@@ -176,6 +176,80 @@ export const useMarketStore = create<MarketStore>((set) => ({
 }));
 ```
 
+### USDC 金额格式化规范
+- **必须**使用 `formatUSDC` 函数格式化所有 USDC 金额显示
+- **禁止**直接使用 `toFixed()` 或 `parseFloat().toFixed()` 格式化 USDC
+- **禁止**硬编码小数位数格式化 USDC
+- 所有 USDC 金额显示必须统一使用 `formatUSDC` 函数
+
+#### formatUSDC 函数说明
+- **位置**: `src/utils/index.ts`
+- **功能**: 格式化 USDC 金额，最多显示 4 位小数，自动去除尾随零（截断，不四舍五入）
+- **参数**: `value: string | number | undefined | null`
+- **返回值**: 格式化后的字符串，如果值为空或无效则返回 `'-'`
+
+#### 使用示例
+
+```typescript
+// ✅ 正确：使用 formatUSDC 格式化 USDC 金额
+import { formatUSDC } from '../utils'
+
+const BalanceDisplay: React.FC<{ balance: string }> = ({ balance }) => {
+  return <span>{formatUSDC(balance)} USDC</span>
+}
+
+// ✅ 正确：在表格列中使用
+const columns = [
+  {
+    title: '余额',
+    dataIndex: 'balance',
+    render: (balance: string) => `${formatUSDC(balance)} USDC`
+  }
+]
+
+// ✅ 正确：在统计组件中使用
+<Statistic
+  title="总盈亏"
+  value={formatUSDC(stats?.totalPnl || '0')}
+  suffix="USDC"
+/>
+
+// ❌ 错误：直接使用 toFixed
+const balance = parseFloat(value).toFixed(4)  // 禁止
+
+// ❌ 错误：硬编码格式化
+const balance = `${parseFloat(value).toFixed(2)} USDC`  // 禁止
+
+// ❌ 错误：使用自定义格式化函数
+const formatBalance = (value: string) => parseFloat(value).toFixed(4)  // 禁止
+```
+
+#### 格式化规则
+- **最多显示 4 位小数**：如果金额超过 4 位小数，截断到 4 位（不四舍五入）
+- **自动去除尾随零**：去除不必要的尾随零和小数点
+- **示例**：
+  - `formatUSDC(1.23)` => `"1.23"`
+  - `formatUSDC(1.23456)` => `"1.2345"`（截断，不四舍五入）
+  - `formatUSDC(1.2)` => `"1.2"`
+  - `formatUSDC(1)` => `"1"`
+  - `formatUSDC(1.23459)` => `"1.2345"`（截断，不四舍五入）
+  - `formatUSDC(null)` => `"-"`
+  - `formatUSDC(undefined)` => `"-"`
+
+#### 工具函数统一导出
+- 所有工具函数统一从 `src/utils/index.ts` 导出
+- **必须**从 `../utils` 导入工具函数，而不是从具体文件导入
+- `ethers.ts` 中的函数也会在 `index.ts` 中统一导出
+
+```typescript
+// ✅ 正确：从 utils 统一导入
+import { formatUSDC, getAddressFromPrivateKey, isValidWalletAddress } from '../utils'
+
+// ❌ 错误：从具体文件导入
+import { formatUSDC } from '../utils/index'
+import { getAddressFromPrivateKey } from '../utils/ethers'
+```
+
 ## 移动端适配示例
 
 ### 响应式布局

@@ -3,6 +3,7 @@ import { Card, Table, Tag, message } from 'antd'
 import { apiService } from '../services/api'
 import type { CopyOrder } from '../types'
 import { useMediaQuery } from 'react-responsive'
+import { formatUSDC } from '../utils'
 
 const OrderList: React.FC = () => {
   const isMobile = useMediaQuery({ maxWidth: 768 })
@@ -115,7 +116,7 @@ const OrderList: React.FC = () => {
       key: 'pnl',
       render: (pnl: string | undefined) => pnl ? (
         <span style={{ color: pnl.startsWith('-') ? 'red' : 'green' }}>
-          {pnl} USDC
+          {formatUSDC(pnl)} USDC
         </span>
       ) : '-'
     },

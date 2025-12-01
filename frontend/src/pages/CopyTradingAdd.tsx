@@ -6,6 +6,7 @@ import { apiService } from '../services/api'
 import { useAccountStore } from '../store/accountStore'
 import type { Account, Leader, CopyTradingTemplate } from '../types'
 import { useMediaQuery } from 'react-responsive'
+import { formatUSDC } from '../utils'
 
 const { Title } = Typography
 const { Option } = Select
@@ -114,7 +115,7 @@ const CopyTradingAdd: React.FC = () => {
             <Select placeholder="请选择模板">
               {templates.map(template => (
                 <Option key={template.id} value={template.id}>
-                  {template.templateName} ({template.copyMode === 'RATIO' ? `比例 ${template.copyRatio}x` : `固定 ${template.fixedAmount ? parseFloat(template.fixedAmount).toFixed(4) : '0.0000'} USDC`})
+                  {template.templateName} ({template.copyMode === 'RATIO' ? `比例 ${template.copyRatio}x` : `固定 ${template.fixedAmount ? formatUSDC(template.fixedAmount) : '0.0000'} USDC`})
                 </Option>
               ))}
             </Select>

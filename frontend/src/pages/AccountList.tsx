@@ -5,6 +5,7 @@ import { PlusOutlined, StarOutlined, StarFilled, ReloadOutlined, EditOutlined } 
 import { useAccountStore } from '../store/accountStore'
 import type { Account } from '../types'
 import { useMediaQuery } from 'react-responsive'
+import { formatUSDC } from '../utils'
 
 const { Title } = Typography
 
@@ -261,7 +262,7 @@ const AccountList: React.FC = () => {
         }
         const balanceObj = balanceMap[record.id]
         const balance = balanceObj?.total || record.balance || '-'
-        return balance && balance !== '-' && typeof balance === 'string' ? `${balance} USDC` : '-'
+        return balance && balance !== '-' && typeof balance === 'string' ? `${formatUSDC(balance)} USDC` : '-'
       }
     },
     {
@@ -359,7 +360,7 @@ const AccountList: React.FC = () => {
               总余额: {balanceLoading[record.id] ? (
                 <Spin size="small" style={{ marginLeft: '4px' }} />
               ) : balanceMap[record.id]?.total && balanceMap[record.id].total !== '-' ? (
-                `${balanceMap[record.id].total} USDC`
+                `${formatUSDC(balanceMap[record.id].total)} USDC`
               ) : (
                 '-'
               )}
@@ -370,7 +371,7 @@ const AccountList: React.FC = () => {
                 color: '#666',
                 marginTop: '4px'
               }}>
-                可用: {balanceMap[record.id].available} USDC | 仓位: {balanceMap[record.id].position} USDC
+                可用: {formatUSDC(balanceMap[record.id].available)} USDC | 仓位: {formatUSDC(balanceMap[record.id].position)} USDC
               </div>
             )}
             {(record.activeOrders !== undefined && record.activeOrders !== null) && (
@@ -597,7 +598,7 @@ const AccountList: React.FC = () => {
                   <Spin size="small" />
                 ) : detailBalance ? (
                   <span style={{ fontWeight: 'bold', color: '#1890ff', fontSize: '16px' }}>
-                    {detailBalance.total} USDC
+                    {formatUSDC(detailBalance.total)} USDC
                   </span>
                 ) : (
                   <span style={{ color: '#999' }}>-</span>
@@ -608,7 +609,7 @@ const AccountList: React.FC = () => {
                   <Spin size="small" />
                 ) : detailBalance ? (
                   <span style={{ color: '#52c41a' }}>
-                    {detailBalance.available} USDC
+                    {formatUSDC(detailBalance.available)} USDC
                   </span>
                 ) : (
                   <span style={{ color: '#999' }}>-</span>
@@ -619,7 +620,7 @@ const AccountList: React.FC = () => {
                   <Spin size="small" />
                 ) : detailBalance ? (
                   <span style={{ color: '#1890ff' }}>
-                    {detailBalance.position} USDC
+                    {formatUSDC(detailBalance.position)} USDC
                   </span>
                 ) : (
                   <span style={{ color: '#999' }}>-</span>
@@ -696,7 +697,7 @@ const AccountList: React.FC = () => {
                         fontWeight: 'bold',
                         color: detailAccount.totalPnl && detailAccount.totalPnl.startsWith('-') ? '#ff4d4f' : '#52c41a'
                       }}>
-                        {detailAccount.totalPnl} USDC
+                        {formatUSDC(detailAccount.totalPnl)} USDC
                       </span>
                     </Descriptions.Item>
                   )}

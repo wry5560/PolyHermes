@@ -420,6 +420,36 @@ class OrderPushService(
     }
 
     /**
+     * 重连所有账户的 WebSocket 连接（用于代理配置变更时）
+     */
+    fun reconnectAllAccounts() {
+        logger.info("重连所有账户的 WebSocket 连接（代理配置已更新）")
+        val accountIds = accountConnections.keys.toList()
+        accountIds.forEach { accountId ->
+            try {
+                // 断开旧连接
+                val oldClient = accountConnections.remove(accountId)
+                oldClient?.closeConnection()
+                
+                // 重新连接
+                val account = accountRepository.findById(accountId).orElse(null)
+                if (account != null && hasApiCredentials(account) && account.isEnabled) {
+                    connectAccount(account)
+                }
+            } catch (e: Exception) {
+                logger.error("重连账户 $accountId 失败", e)
+            }
+        }
+    }
+    
+    /**
+     * 获取所有账户的连接状态
+     */
+    fun getConnectionStatuses(): Map<Long, Boolean> {
+        return accountConnections.mapValues { (_, client) -> client.isConnected() }
+    }
+    
+    /**
      * 断开指定账户的连接
      */
     fun disconnectAccount(accountId: Long) {

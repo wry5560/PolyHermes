@@ -387,6 +387,65 @@ export const apiService = {
      */
     list: (data: any) => 
       apiClient.post<ApiResponse<any>>('/copy-trading/orders/tracking', data)
+  },
+  
+  /**
+   * 代理配置 API
+   */
+  proxyConfig: {
+    /**
+     * 获取当前代理配置
+     */
+    get: () =>
+      apiClient.post<ApiResponse<any>>('/proxy-config/get', {}),
+    
+    /**
+     * 获取所有代理配置
+     */
+    list: () =>
+      apiClient.post<ApiResponse<any[]>>('/proxy-config/list', {}),
+    
+    /**
+     * 保存 HTTP 代理配置
+     */
+    saveHttp: (data: {
+      enabled: boolean
+      host: string
+      port: number
+      username?: string
+      password?: string
+    }) =>
+      apiClient.post<ApiResponse<any>>('/proxy-config/http/save', data),
+    
+    /**
+     * 检查代理是否可用
+     */
+    check: () =>
+      apiClient.post<ApiResponse<{
+        success: boolean
+        message: string
+        responseTime?: number
+      }>>('/proxy-config/check', {}),
+    
+    /**
+     * 删除代理配置
+     */
+    delete: (data: { id: number }) =>
+      apiClient.post<ApiResponse<void>>('/proxy-config/delete', data),
+    
+    /**
+     * 检查所有 API 的健康状态
+     */
+    checkApiHealth: () =>
+      apiClient.post<ApiResponse<{
+        apis: Array<{
+          name: string
+          url: string
+          status: string
+          message: string
+          responseTime?: number
+        }>
+      }>>('/proxy-config/api-health-check', {})
   }
 }
 

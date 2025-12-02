@@ -12,51 +12,44 @@ import javax.net.ssl.*
 
 /**
  * 获取代理配置（用于 WebSocket 和 HTTP 请求）
+ * 从数据库读取代理配置
  * @return Proxy 对象，如果未启用代理则返回 null
  */
 fun getProxyConfig(): Proxy? {
-    if (getEnv("ENABLE_PROXY") != "1") {
-        return null
-    }
-    val host = getEnv("PROXY_HOST").ifEmpty { "127.0.0.1" }
-    val port = getEnv("PROXY_PORT").toIntOrNull() ?: 8888
-    return Proxy(Proxy.Type.HTTP, InetSocketAddress(host, port))
+    return ProxyConfigProvider.getProxy()
 }
 
 /**
  * 创建OkHttpClient客户端
+ * 自动应用代理配置（从数据库读取）
  * @return OkHttpClient.Builder
  */
-fun createClient() = OkHttpClient.Builder()
-    .connectTimeout(30, TimeUnit.SECONDS)
-    .httpProxy("127.0.0.1", 8888)
-    .readTimeout(30, TimeUnit.SECONDS)
-    .writeTimeout(30, TimeUnit.SECONDS)
+fun createClient(): OkHttpClient.Builder {
+    val builder = OkHttpClient.Builder()
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
 
-/**
- * 为OkHttpClient添加HTTP代理支持
- * @param hostname 代理服务器地址
- * @param port 代理服务器端口
- * @param user 代理用户名（可选）
- * @param password 代理密码（可选）
- * @return OkHttpClient.Builder
- */
-fun OkHttpClient.Builder.httpProxy(
-    hostname: String, port: Int, user: String = "", password: String = ""
-): OkHttpClient.Builder {
-    if (getEnv("ENABLE_PROXY") != "1") {
-        return this
-    }
-    return apply {
-        proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress(hostname, port)))
-        createSSLSocketFactory()
-        if (user.isNotEmpty() && password.isNotEmpty()) {
-            proxyAuthenticator { _, res ->
-                val credential: String = Credentials.basic(user, password)
-                res.request.newBuilder().header("Proxy-Authorization", credential).build()
+    // 从数据库读取代理配置
+    val dbProxy = ProxyConfigProvider.getProxy()
+    if (dbProxy != null) {
+        builder.proxy(dbProxy)
+        builder.createSSLSocketFactory()
+
+        // 如果配置了用户名和密码，添加代理认证
+        val username = ProxyConfigProvider.getProxyUsername()
+        val password = ProxyConfigProvider.getProxyPassword()
+        if (username != null && password != null) {
+            builder.proxyAuthenticator { _, response ->
+                val credential = Credentials.basic(username, password)
+                response.request.newBuilder()
+                    .header("Proxy-Authorization", credential)
+                    .build()
             }
         }
     }
+
+    return builder
 }
 
 /**
@@ -64,12 +57,15 @@ fun OkHttpClient.Builder.httpProxy(
  * @return OkHttpClient.Builder
  */
 fun OkHttpClient.Builder.createSSLSocketFactory(): OkHttpClient.Builder {
-    runCatching {
-        val sc: SSLContext = SSLContext.getInstance("TLS")
-        sc.init(null, arrayOf<TrustManager>(TrustAllManager()), SecureRandom())
-        this.sslSocketFactory(sc.socketFactory, TrustAllManager())
+    return apply {
+        try {
+            val sc: SSLContext = SSLContext.getInstance("TLS")
+            sc.init(null, arrayOf<TrustManager>(TrustAllManager()), SecureRandom())
+            sslSocketFactory(sc.socketFactory, TrustAllManager())
+        } catch (t: Error) {
+
+        }
     }
-    return this
 }
 
 /**

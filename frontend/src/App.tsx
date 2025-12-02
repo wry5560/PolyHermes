@@ -25,6 +25,7 @@ import CopyTradingStatistics from './pages/CopyTradingStatistics'
 import CopyTradingBuyOrders from './pages/CopyTradingBuyOrders'
 import CopyTradingSellOrders from './pages/CopyTradingSellOrders'
 import CopyTradingMatchedOrders from './pages/CopyTradingMatchedOrders'
+import SystemSettings from './pages/SystemSettings'
 import { wsManager } from './services/websocket'
 import type { OrderPushMessage } from './types'
 import { apiService } from './services/api'
@@ -226,6 +227,7 @@ function App() {
           <Route path="/positions" element={<ProtectedRoute><PositionList /></ProtectedRoute>} />
           <Route path="/statistics" element={<ProtectedRoute><Statistics /></ProtectedRoute>} />
           <Route path="/users" element={<ProtectedRoute><UserList /></ProtectedRoute>} />
+          <Route path="/system-settings" element={<ProtectedRoute><SystemSettings /></ProtectedRoute>} />
           
           {/* 默认重定向到登录页 */}
           <Route path="*" element={<Navigate to="/login" replace />} />

@@ -12,7 +12,8 @@ import {
   LinkOutlined,
   AppstoreOutlined,
   TeamOutlined,
-  LogoutOutlined
+  LogoutOutlined,
+  SettingOutlined
 } from '@ant-design/icons'
 import type { MenuProps } from 'antd'
 import type { ReactNode } from 'react'
@@ -100,6 +101,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       key: '/users',
       icon: <TeamOutlined />,
       label: '用户管理'
+    },
+    {
+      key: '/system-settings',
+      icon: <SettingOutlined />,
+      label: '系统管理'
     },
     {
       key: 'logout',

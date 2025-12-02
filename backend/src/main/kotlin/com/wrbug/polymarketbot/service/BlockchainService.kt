@@ -25,8 +25,8 @@ import java.math.BigInteger
 class BlockchainService(
     @Value("\${polymarket.data-api.base-url:https://data-api.polymarket.com}")
     private val dataApiBaseUrl: String,
-    @Value("\${ethereum.rpc.url:}")
-    private val ethereumRpcUrl: String,
+    @Value("\${polygon.rpc.url:}")
+    private val polygonRpcUrl: String,
     private val retrofitFactory: RetrofitFactory
 ) {
     
@@ -67,11 +67,11 @@ class BlockchainService(
             .create(PolymarketDataApi::class.java)
     }
     
-    private val ethereumRpcApi: EthereumRpcApi? by lazy {
-        if (ethereumRpcUrl.isBlank()) {
+    private val polygonRpcApi: EthereumRpcApi? by lazy {
+        if (polygonRpcUrl.isBlank()) {
             null
         } else {
-            retrofitFactory.createEthereumRpcApi(ethereumRpcUrl)
+            retrofitFactory.createEthereumRpcApi(polygonRpcUrl)
         }
     }
     
@@ -84,12 +84,12 @@ class BlockchainService(
     suspend fun getProxyAddress(walletAddress: String): Result<String> {
         return try {
             // 如果未配置 RPC URL，返回错误
-            if (ethereumRpcUrl.isBlank()) {
-                logger.warn("未配置 Ethereum RPC URL，无法获取代理地址")
-                return Result.failure(IllegalStateException("未配置 Ethereum RPC URL，无法获取代理地址。请在配置文件中设置 ethereum.rpc.url 环境变量"))
+            if (polygonRpcUrl.isBlank()) {
+                logger.warn("未配置 Polygon RPC URL，无法获取代理地址")
+                return Result.failure(IllegalStateException("未配置 Polygon RPC URL，无法获取代理地址。请在配置文件中设置 polygon.rpc.url 环境变量"))
             }
             
-            val rpcApi = ethereumRpcApi ?: throw IllegalStateException("Ethereum RPC URL 未配置")
+            val rpcApi = polygonRpcApi ?: throw IllegalStateException("Polygon RPC URL 未配置")
             
             // 计算函数选择器
             val functionSelector = EthereumUtils.getFunctionSelector(computeProxyAddressFunctionSignature)
@@ -138,7 +138,7 @@ class BlockchainService(
     
     /**
      * 查询账户 USDC 余额
-     * 通过 Ethereum RPC 查询 ERC-20 代币余额
+     * 通过 Polygon RPC 查询 ERC-20 代币余额
      * @param walletAddress 钱包地址（用于日志记录）
      * @param proxyAddress 代理地址（必须提供）
      * 如果 RPC 未配置或代理地址为空，返回失败（不返回 mock 数据）
@@ -146,9 +146,9 @@ class BlockchainService(
     suspend fun getUsdcBalance(walletAddress: String, proxyAddress: String): Result<String> {
         return try {
             // 如果未配置 RPC URL，返回错误
-            if (ethereumRpcUrl.isBlank()) {
-                logger.warn("未配置 Ethereum RPC URL，无法查询 USDC 余额")
-                return Result.failure(IllegalStateException("未配置 Ethereum RPC URL，无法查询 USDC 余额。请在配置文件中设置 ethereum.rpc.url 环境变量"))
+            if (polygonRpcUrl.isBlank()) {
+                logger.warn("未配置 Polygon RPC URL，无法查询 USDC 余额")
+                return Result.failure(IllegalStateException("未配置 Polygon RPC URL，无法查询 USDC 余额。请在配置文件中设置 polygon.rpc.url 环境变量"))
             }
             
             // 检查代理地址是否为空
@@ -171,7 +171,7 @@ class BlockchainService(
      * 通过 RPC 查询 USDC 余额
      */
     private suspend fun queryUsdcBalanceViaRpc(walletAddress: String): String {
-        val rpcApi = ethereumRpcApi ?: throw IllegalStateException("Ethereum RPC URL 未配置")
+        val rpcApi = polygonRpcApi ?: throw IllegalStateException("Polygon RPC URL 未配置")
         
         // 构建 ERC-20 balanceOf 函数调用
         // function signature: balanceOf(address) -> bytes4(0x70a08231)
@@ -263,12 +263,12 @@ class BlockchainService(
     suspend fun getTokenId(conditionId: String, outcomeIndex: Int): Result<String> {
         return try {
             // 如果未配置 RPC URL，返回错误
-            if (ethereumRpcUrl.isBlank()) {
-                logger.warn("未配置 Ethereum RPC URL，无法计算 tokenId")
-                return Result.failure(IllegalStateException("未配置 Ethereum RPC URL，无法计算 tokenId"))
+            if (polygonRpcUrl.isBlank()) {
+                logger.warn("未配置 Polygon RPC URL，无法计算 tokenId")
+                return Result.failure(IllegalStateException("未配置 Polygon RPC URL，无法计算 tokenId"))
             }
             
-            val rpcApi = ethereumRpcApi ?: throw IllegalStateException("Ethereum RPC URL 未配置")
+            val rpcApi = polygonRpcApi ?: throw IllegalStateException("Polygon RPC URL 未配置")
             
             // 验证 outcomeIndex
             if (outcomeIndex < 0) {
@@ -422,12 +422,12 @@ class BlockchainService(
     ): Result<String> {
         return try {
             // 如果未配置 RPC URL，返回错误
-            if (ethereumRpcUrl.isBlank()) {
-                logger.warn("未配置 Ethereum RPC URL，无法赎回仓位")
-                return Result.failure(IllegalStateException("未配置 Ethereum RPC URL，无法赎回仓位"))
+            if (polygonRpcUrl.isBlank()) {
+                logger.warn("未配置 Polygon RPC URL，无法赎回仓位")
+                return Result.failure(IllegalStateException("未配置 Polygon RPC URL，无法赎回仓位"))
             }
             
-            val rpcApi = ethereumRpcApi ?: throw IllegalStateException("Ethereum RPC URL 未配置")
+            val rpcApi = polygonRpcApi ?: throw IllegalStateException("Polygon RPC URL 未配置")
             
             // 验证参数
             if (indexSets.isEmpty()) {
@@ -650,7 +650,7 @@ class BlockchainService(
      * 获取代理钱包的 nonce（用于构建 Safe 交易）
      */
     private suspend fun getProxyNonce(proxyAddress: String): Result<BigInteger> {
-        val rpcApi = ethereumRpcApi ?: throw IllegalStateException("Ethereum RPC URL 未配置")
+        val rpcApi = polygonRpcApi ?: throw IllegalStateException("Polygon RPC URL 未配置")
         
         // Gnosis Safe 的 nonce 通过调用合约的 nonce() 函数获取
         val nonceFunctionSelector = EthereumUtils.getFunctionSelector("nonce()")
@@ -685,7 +685,7 @@ class BlockchainService(
      * 获取交易 nonce
      */
     private suspend fun getTransactionCount(address: String): Result<BigInteger> {
-        val rpcApi = ethereumRpcApi ?: throw IllegalStateException("Ethereum RPC URL 未配置")
+        val rpcApi = polygonRpcApi ?: throw IllegalStateException("Polygon RPC URL 未配置")
         
         val rpcRequest = JsonRpcRequest(
             method = "eth_getTransactionCount",
@@ -713,7 +713,7 @@ class BlockchainService(
      * 获取 gas price
      */
     private suspend fun getGasPrice(): Result<BigInteger> {
-        val rpcApi = ethereumRpcApi ?: throw IllegalStateException("Ethereum RPC URL 未配置")
+        val rpcApi = polygonRpcApi ?: throw IllegalStateException("Polygon RPC URL 未配置")
         
         val rpcRequest = JsonRpcRequest(
             method = "eth_gasPrice",
@@ -815,11 +815,11 @@ class BlockchainService(
      */
     suspend fun getTransactionDetails(txHash: String): Result<String> {
         return try {
-            if (ethereumRpcUrl.isBlank()) {
-                return Result.failure(IllegalStateException("未配置 Ethereum RPC URL"))
+            if (polygonRpcUrl.isBlank()) {
+                return Result.failure(IllegalStateException("未配置 Polygon RPC URL"))
             }
             
-            val rpcApi = ethereumRpcApi ?: throw IllegalStateException("Ethereum RPC URL 未配置")
+            val rpcApi = polygonRpcApi ?: throw IllegalStateException("Polygon RPC URL 未配置")
             
             // 查询交易
             val txRequest = JsonRpcRequest(

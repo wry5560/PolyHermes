@@ -13,7 +13,7 @@ import org.slf4j.LoggerFactory
 /**
  * Polymarket WebSocket 客户端（使用 OkHttp 实现）
  * 用于连接到 Polymarket RTDS
- * 支持代理配置（通过环境变量 ENABLE_PROXY、PROXY_HOST、PROXY_PORT 控制）
+ * 支持代理配置（从数据库读取）
  */
 class PolymarketWebSocketClient(
     private val url: String,

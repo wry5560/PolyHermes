@@ -131,6 +131,45 @@ class CopyTradingWebSocketService(
     }
     
     /**
+     * 重连所有 Leader 的 WebSocket 连接（用于代理配置变更时）
+     */
+    fun reconnectAll() {
+        logger.info("重连所有 Leader 的 WebSocket 连接（代理配置已更新）")
+        val leaderIds = leaderClients.keys.toList()
+        val leaderAddressesMap = leaderAddresses.toMap()
+        
+        leaderIds.forEach { leaderId ->
+            try {
+                // 断开旧连接
+                val oldClient = leaderClients.remove(leaderId)
+                oldClient?.closeConnection()
+                
+                // 重新连接
+                val leaderAddress = leaderAddressesMap[leaderId]
+                if (leaderAddress != null) {
+                    // 重新创建 Leader 对象（简化版，只需要地址）
+                    val leader = Leader(
+                        id = leaderId,
+                        leaderAddress = leaderAddress,
+                        leaderName = null,
+                        category = null
+                    )
+                    addLeader(leader)
+                }
+            } catch (e: Exception) {
+                logger.error("重连 Leader $leaderId 失败", e)
+            }
+        }
+    }
+    
+    /**
+     * 获取所有 Leader 的连接状态
+     */
+    fun getConnectionStatuses(): Map<Long, Boolean> {
+        return leaderClients.mapValues { (_, client) -> client.isConnected() }
+    }
+    
+    /**
      * 订阅用户交易频道
      */
     private fun subscribeUserTrades(client: PolymarketWebSocketClient, userAddress: String) {

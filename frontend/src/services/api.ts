@@ -1,5 +1,7 @@
-import axios, { AxiosInstance } from 'axios'
+import axios, { AxiosInstance, AxiosError } from 'axios'
 import type { ApiResponse } from '../types'
+import { getToken, setToken, removeToken } from '../utils'
+import { wsManager } from './websocket'
 
 /**
  * API 基础配置
@@ -17,6 +19,11 @@ const apiClient: AxiosInstance = axios.create({
  */
 apiClient.interceptors.request.use(
   (config) => {
+    // 从 localStorage 读取 token 并添加到请求头
+    const token = getToken()
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`
+    }
     return config
   },
   (error) => {
@@ -29,11 +36,31 @@ apiClient.interceptors.request.use(
  */
 apiClient.interceptors.response.use(
   (response) => {
+    // 检查响应头中是否有新的 token（自动刷新）
+    const newToken = response.headers['x-new-token']
+    if (newToken) {
+      setToken(newToken)
+    }
     return response
   },
-  (error) => {
+  (error: AxiosError<ApiResponse<any>>) => {
     if (error.response) {
-      console.error('API 错误:', error.response.data)
+      const response = error.response
+      const data = response.data
+      
+      // 检查是否是认证错误（2001-2999）
+      if (data && data.code >= 2001 && data.code < 3000) {
+        // 清除 token
+        removeToken()
+        // 断开 WebSocket 连接
+        wsManager.disconnect()
+        // 跳转到登录页（避免循环跳转）
+        if (window.location.pathname !== '/login' && window.location.pathname !== '/reset-password') {
+          window.location.href = '/login'
+        }
+      }
+      
+      console.error('API 错误:', data)
     } else if (error.request) {
       console.error('网络错误:', error.request)
     } else {
@@ -47,6 +74,64 @@ apiClient.interceptors.response.use(
  * API 服务
  */
 export const apiService = {
+  /**
+   * 用户管理 API
+   */
+  users: {
+    /**
+     * 获取用户列表
+     */
+    list: () =>
+      apiClient.post<ApiResponse<any[]>>('/users/list', {}),
+    
+    /**
+     * 创建用户
+     */
+    create: (data: { username: string; password: string }) =>
+      apiClient.post<ApiResponse<any>>('/users/create', data),
+    
+    /**
+     * 更新用户密码
+     */
+    updatePassword: (data: { userId: number; newPassword: string }) =>
+      apiClient.post<ApiResponse<void>>('/users/update-password', data),
+    
+    /**
+     * 删除用户
+     */
+    delete: (data: { userId: number }) =>
+      apiClient.post<ApiResponse<void>>('/users/delete', data),
+    
+    /**
+     * 用户修改自己的密码
+     */
+    updateOwnPassword: (data: { newPassword: string }) =>
+      apiClient.post<ApiResponse<void>>('/users/update-own-password', data)
+  },
+  
+  /**
+   * 认证 API
+   */
+  auth: {
+    /**
+     * 登录
+     */
+    login: (data: { username: string; password: string }) =>
+      apiClient.post<ApiResponse<{ token: string }>>('/auth/login', data),
+    
+    /**
+     * 重置密码
+     */
+    resetPassword: (data: { resetKey: string; username: string; newPassword: string }) =>
+      apiClient.post<ApiResponse<void>>('/auth/reset-password', data),
+    
+    /**
+     * 检查是否首次使用
+     */
+    checkFirstUse: () =>
+      apiClient.post<ApiResponse<{ isFirstUse: boolean }>>('/auth/check-first-use', {})
+  },
+  
   /**
    * 账户管理 API
    */

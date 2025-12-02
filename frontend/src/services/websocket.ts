@@ -53,6 +53,13 @@ class WebSocketManager {
    * 连接 WebSocket（全局共享连接）
    */
   connect(): void {
+    // 检查是否有token，未登录不允许连接
+    const token = this.getToken()
+    if (!token) {
+      console.log('[WebSocket] 未登录，不建立连接')
+      return
+    }
+    
     // 如果已经连接或正在连接，直接返回
     if (this.ws?.readyState === WebSocket.OPEN || this.isConnecting) {
       return
@@ -104,8 +111,8 @@ class WebSocketManager {
         this.isConnecting = false
         this.notifyConnectionStatus(false)
         this.stopPing()
-        // 自动重连（除非正在卸载）
-        if (!this.isUnmounting) {
+        // 自动重连（除非正在卸载或未登录）
+        if (!this.isUnmounting && this.getToken()) {
           this.scheduleReconnect()
         }
       }
@@ -113,8 +120,8 @@ class WebSocketManager {
       console.error('[WebSocket] 创建连接失败:', error)
       this.isConnecting = false
       this.notifyConnectionStatus(false)
-      // 自动重连（除非正在卸载）
-      if (!this.isUnmounting) {
+      // 自动重连（除非正在卸载或未登录）
+      if (!this.isUnmounting && this.getToken()) {
         this.scheduleReconnect()
       }
     }
@@ -272,6 +279,11 @@ class WebSocketManager {
       return
     }
     
+    // 检查是否有token，未登录不重连
+    if (!this.getToken()) {
+      return
+    }
+    
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer)
     }
@@ -312,12 +324,24 @@ class WebSocketManager {
   }
   
   /**
-   * 获取 WebSocket URL
+   * 获取 WebSocket URL（带token认证）
    */
   private getWebSocketUrl(): string {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const host = window.location.host
+    const token = this.getToken()
+    if (token) {
+      // 通过查询参数传递token
+      return `${protocol}//${host}/ws?token=${encodeURIComponent(token)}`
+    }
     return `${protocol}//${host}/ws`
+  }
+  
+  /**
+   * 获取token（从localStorage）
+   */
+  private getToken(): string | null {
+    return localStorage.getItem('jwt_token')
   }
   
   /**

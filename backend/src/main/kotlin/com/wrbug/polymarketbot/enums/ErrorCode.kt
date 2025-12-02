@@ -75,6 +75,11 @@ enum class ErrorCode(
     AUTH_API_SECRET_INVALID(2006, "API Secret 无效"),
     AUTH_API_PASSPHRASE_INVALID(2007, "API Passphrase 无效"),
     AUTH_API_CREDENTIALS_MISSING(2008, "API 凭证未配置"),
+    AUTH_USERNAME_OR_PASSWORD_ERROR(2009, "用户名或密码错误"),
+    AUTH_RESET_KEY_INVALID(2010, "重置密钥错误"),
+    AUTH_RESET_PASSWORD_RATE_LIMIT(2011, "频率限制：1分钟内最多尝试3次，请稍后再试"),
+    AUTH_USER_NOT_FOUND(2012, "用户不存在"),
+    AUTH_PASSWORD_WEAK(2013, "密码长度不符合要求，至少6位"),
     
     // ==================== 资源不存在 (3001-3999) ====================
     NOT_FOUND(3001, "资源不存在"),

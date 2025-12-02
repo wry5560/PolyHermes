@@ -37,3 +37,11 @@ export {
   isValidPrivateKey
 } from './ethers'
 
+// 统一导出 auth 相关工具函数
+export {
+  getToken,
+  setToken,
+  removeToken,
+  hasToken
+} from './auth'
+

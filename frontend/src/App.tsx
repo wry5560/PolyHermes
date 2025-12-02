@@ -1,9 +1,12 @@
-import { useEffect, useCallback } from 'react'
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
-import { ConfigProvider, notification } from 'antd'
+import { useEffect, useCallback, useState } from 'react'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { ConfigProvider, notification, Spin } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 import Layout from './components/Layout'
+import Login from './pages/Login'
+import ResetPassword from './pages/ResetPassword'
 import AccountList from './pages/AccountList'
+import UserList from './pages/UserList'
 import AccountImport from './pages/AccountImport'
 import AccountDetail from './pages/AccountDetail'
 import AccountEdit from './pages/AccountEdit'
@@ -24,8 +27,30 @@ import CopyTradingSellOrders from './pages/CopyTradingSellOrders'
 import CopyTradingMatchedOrders from './pages/CopyTradingMatchedOrders'
 import { wsManager } from './services/websocket'
 import type { OrderPushMessage } from './types'
+import { apiService } from './services/api'
+import { hasToken } from './utils'
+
+/**
+ * 路由保护组件
+ */
+const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const location = useLocation()
+  const isAuthPage = location.pathname === '/login' || location.pathname === '/reset-password'
+  
+  if (isAuthPage) {
+    return <>{children}</>
+  }
+  
+  if (!hasToken()) {
+    return <Navigate to="/login" replace />
+  }
+  
+  return <Layout>{children}</Layout>
+}
 
 function App() {
+  const [isFirstUse, setIsFirstUse] = useState<boolean | null>(null)
+  const [checking, setChecking] = useState(true)
   /**
    * 获取订单类型文本
    */
@@ -100,16 +125,35 @@ function App() {
     })
   }, [getOrderTypeText])
   
-  // 应用启动时立即建立全局 WebSocket 连接
+  // 应用启动时检查是否首次使用
   useEffect(() => {
-    // 立即建立连接（如果还未连接）
-    if (!wsManager.isConnected()) {
-      wsManager.connect()
+    const checkFirstUse = async () => {
+      try {
+        const response = await apiService.auth.checkFirstUse()
+        if (response.data.code === 0 && response.data.data) {
+          setIsFirstUse(response.data.data.isFirstUse)
+        }
+      } catch (error) {
+        console.error('检查首次使用失败:', error)
+        setIsFirstUse(false) // 出错时默认不是首次使用
+      } finally {
+        setChecking(false)
+      }
     }
     
-    // 注意：应用不会卸载，所以不需要在 cleanup 中断开连接
-    // WebSocket 连接会在整个应用生命周期中保持，并自动重连
+    checkFirstUse()
   }, [])
+  
+  // 应用启动时立即建立全局 WebSocket 连接（仅在已登录时）
+  useEffect(() => {
+    // 只有在已登录且不是首次使用的情况下才建立WebSocket连接
+    if (!checking && isFirstUse === false && hasToken() && !wsManager.isConnected()) {
+      wsManager.connect()
+    } else if (!hasToken() && wsManager.isConnected()) {
+      // 如果未登录但WebSocket已连接，断开连接
+      wsManager.disconnect()
+    }
+  }, [checking, isFirstUse])
   
   // 订阅订单推送并显示全局通知
   useEffect(() => {
@@ -122,33 +166,70 @@ function App() {
     }
   }, [handleOrderPush])
   
+  // 如果正在检查首次使用，显示加载中
+  if (checking) {
+    return (
+      <ConfigProvider locale={zhCN}>
+        <div style={{
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          minHeight: '100vh'
+        }}>
+          <Spin size="large" />
+        </div>
+      </ConfigProvider>
+    )
+  }
+  
+  // 如果首次使用，直接跳转到重置密码页面
+  if (isFirstUse === true) {
+    return (
+      <ConfigProvider locale={zhCN}>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/reset-password" element={<ResetPassword />} />
+            <Route path="*" element={<Navigate to="/reset-password" replace />} />
+          </Routes>
+        </BrowserRouter>
+      </ConfigProvider>
+    )
+  }
+  
   return (
     <ConfigProvider locale={zhCN}>
       <BrowserRouter>
-        <Layout>
-          <Routes>
-            <Route path="/" element={<AccountList />} />
-            <Route path="/accounts" element={<AccountList />} />
-            <Route path="/accounts/import" element={<AccountImport />} />
-            <Route path="/accounts/detail" element={<AccountDetail />} />
-            <Route path="/accounts/edit" element={<AccountEdit />} />
-            <Route path="/leaders" element={<LeaderList />} />
-            <Route path="/leaders/add" element={<LeaderAdd />} />
-            <Route path="/leaders/edit" element={<LeaderEdit />} />
-            <Route path="/templates" element={<TemplateList />} />
-            <Route path="/templates/add" element={<TemplateAdd />} />
-            <Route path="/templates/edit/:id" element={<TemplateEdit />} />
-            <Route path="/copy-trading" element={<CopyTradingList />} />
-            <Route path="/copy-trading/add" element={<CopyTradingAdd />} />
-            <Route path="/copy-trading/statistics/:copyTradingId" element={<CopyTradingStatistics />} />
-            <Route path="/copy-trading/orders/buy/:copyTradingId" element={<CopyTradingBuyOrders />} />
-            <Route path="/copy-trading/orders/sell/:copyTradingId" element={<CopyTradingSellOrders />} />
-            <Route path="/copy-trading/orders/matched/:copyTradingId" element={<CopyTradingMatchedOrders />} />
-            <Route path="/config" element={<ConfigPage />} />
-            <Route path="/positions" element={<PositionList />} />
-            <Route path="/statistics" element={<Statistics />} />
-          </Routes>
-        </Layout>
+        <Routes>
+          {/* 公开路由（不需要鉴权） */}
+          <Route path="/login" element={<Login />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
+          
+          {/* 受保护的路由 */}
+          <Route path="/" element={<ProtectedRoute><AccountList /></ProtectedRoute>} />
+          <Route path="/accounts" element={<ProtectedRoute><AccountList /></ProtectedRoute>} />
+          <Route path="/accounts/import" element={<ProtectedRoute><AccountImport /></ProtectedRoute>} />
+          <Route path="/accounts/detail" element={<ProtectedRoute><AccountDetail /></ProtectedRoute>} />
+          <Route path="/accounts/edit" element={<ProtectedRoute><AccountEdit /></ProtectedRoute>} />
+          <Route path="/leaders" element={<ProtectedRoute><LeaderList /></ProtectedRoute>} />
+          <Route path="/leaders/add" element={<ProtectedRoute><LeaderAdd /></ProtectedRoute>} />
+          <Route path="/leaders/edit" element={<ProtectedRoute><LeaderEdit /></ProtectedRoute>} />
+          <Route path="/templates" element={<ProtectedRoute><TemplateList /></ProtectedRoute>} />
+          <Route path="/templates/add" element={<ProtectedRoute><TemplateAdd /></ProtectedRoute>} />
+          <Route path="/templates/edit/:id" element={<ProtectedRoute><TemplateEdit /></ProtectedRoute>} />
+          <Route path="/copy-trading" element={<ProtectedRoute><CopyTradingList /></ProtectedRoute>} />
+          <Route path="/copy-trading/add" element={<ProtectedRoute><CopyTradingAdd /></ProtectedRoute>} />
+          <Route path="/copy-trading/statistics/:copyTradingId" element={<ProtectedRoute><CopyTradingStatistics /></ProtectedRoute>} />
+          <Route path="/copy-trading/orders/buy/:copyTradingId" element={<ProtectedRoute><CopyTradingBuyOrders /></ProtectedRoute>} />
+          <Route path="/copy-trading/orders/sell/:copyTradingId" element={<ProtectedRoute><CopyTradingSellOrders /></ProtectedRoute>} />
+          <Route path="/copy-trading/orders/matched/:copyTradingId" element={<ProtectedRoute><CopyTradingMatchedOrders /></ProtectedRoute>} />
+          <Route path="/config" element={<ProtectedRoute><ConfigPage /></ProtectedRoute>} />
+          <Route path="/positions" element={<ProtectedRoute><PositionList /></ProtectedRoute>} />
+          <Route path="/statistics" element={<ProtectedRoute><Statistics /></ProtectedRoute>} />
+          <Route path="/users" element={<ProtectedRoute><UserList /></ProtectedRoute>} />
+          
+          {/* 默认重定向到登录页 */}
+          <Route path="*" element={<Navigate to="/login" replace />} />
+        </Routes>
       </BrowserRouter>
     </ConfigProvider>
   )

@@ -57,6 +57,14 @@ dependencies {
     // Web3j for Ethereum wallet and EIP-712 signing
     implementation("org.web3j:core:5.0.0")
     
+    // JWT
+    implementation("io.jsonwebtoken:jjwt-api:0.12.3")
+    implementation("io.jsonwebtoken:jjwt-impl:0.12.3")
+    implementation("io.jsonwebtoken:jjwt-jackson:0.12.3")
+    
+    // BCrypt for password encryption
+    implementation("org.springframework.security:spring-security-crypto:6.2.2")
+    
     // Logging
     implementation("org.slf4j:slf4j-api")
     

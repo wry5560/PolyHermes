@@ -15,17 +15,21 @@ import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry
 @EnableWebSocket
 class WebSocketConfig(
     private val polymarketWebSocketHandler: PolymarketWebSocketHandler,
-    private val unifiedWebSocketHandler: UnifiedWebSocketHandler
+    private val unifiedWebSocketHandler: UnifiedWebSocketHandler,
+    private val webSocketAuthInterceptor: WebSocketAuthInterceptor
 ) : WebSocketConfigurer {
     
     override fun registerWebSocketHandlers(registry: WebSocketHandlerRegistry) {
         // Polymarket RTDS 转发端点（转发外部 Polymarket 实时数据流）
+        // 注意：此端点不需要鉴权，因为它只是转发外部数据
         registry.addHandler(polymarketWebSocketHandler, "/ws/polymarket")
             .setAllowedOrigins("*")  // 生产环境应该配置具体的域名
         
         // 统一 WebSocket 端点（所有推送服务统一使用此路径，通过 channel 区分）
         // 支持的频道：position（仓位推送）、order（订单推送，待实现）等
+        // 需要 JWT 鉴权
         registry.addHandler(unifiedWebSocketHandler, "/ws")
+            .addInterceptors(webSocketAuthInterceptor)  // 添加鉴权拦截器
             .setAllowedOrigins("*")  // 生产环境应该配置具体的域名
     }
 }

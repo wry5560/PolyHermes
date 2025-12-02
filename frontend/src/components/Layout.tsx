@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { Layout as AntLayout, Menu, Drawer, Button } from 'antd'
+import { Layout as AntLayout, Menu, Drawer, Button, Modal } from 'antd'
 import { useMediaQuery } from 'react-responsive'
 import {
   WalletOutlined,
@@ -10,10 +10,14 @@ import {
   MenuOutlined,
   FileTextOutlined,
   LinkOutlined,
-  AppstoreOutlined
+  AppstoreOutlined,
+  TeamOutlined,
+  LogoutOutlined
 } from '@ant-design/icons'
 import type { MenuProps } from 'antd'
 import type { ReactNode } from 'react'
+import { removeToken } from '../utils'
+import { wsManager } from '../services/websocket'
 
 const { Header, Content, Sider } = AntLayout
 
@@ -35,10 +39,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   // 获取当前应该打开的父菜单
   const getInitialOpenKeys = (): string[] => {
     const path = location.pathname
+    const keys: string[] = []
     if (path.startsWith('/leaders') || path.startsWith('/templates') || path.startsWith('/copy-trading')) {
-      return ['/copy-trading-management']
+      keys.push('/copy-trading-management')
     }
-    return []
+    return keys
   }
   
   const [openKeys, setOpenKeys] = useState<string[]>(getInitialOpenKeys())
@@ -46,9 +51,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   // 当路径变化时，自动打开对应的父菜单
   useEffect(() => {
     const path = location.pathname
+    const keys: string[] = []
     if (path.startsWith('/leaders') || path.startsWith('/templates') || path.startsWith('/copy-trading')) {
-      setOpenKeys(['/copy-trading-management'])
+      keys.push('/copy-trading-management')
     }
+    setOpenKeys(keys)
   }, [location.pathname])
   
   const menuItems: MenuProps['items'] = [
@@ -88,14 +95,53 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       key: '/statistics',
       icon: <BarChartOutlined />,
       label: '统计信息'
+    },
+    {
+      key: '/users',
+      icon: <TeamOutlined />,
+      label: '用户管理'
+    },
+    {
+      key: 'logout',
+      icon: <LogoutOutlined />,
+      label: '退出登录'
     }
   ]
+  
+  const handleLogout = () => {
+    removeToken()
+    // 断开 WebSocket 连接
+    wsManager.disconnect()
+    navigate('/login', { replace: true })
+  }
+  
+  const handleLogoutConfirm = () => {
+    Modal.confirm({
+      title: '确认退出',
+      content: '确定要退出登录吗？',
+      okText: '确定',
+      cancelText: '取消',
+      onOk: () => {
+        handleLogout()
+        if (isMobile) {
+          setMobileMenuOpen(false)
+        }
+      }
+    })
+  }
   
   const handleMenuClick = ({ key }: { key: string }) => {
     // 如果是父菜单，不导航
     if (key === '/copy-trading-management') {
       return
     }
+    
+    // 处理退出登录
+    if (key === 'logout') {
+      handleLogoutConfirm()
+      return
+    }
+    
     navigate(key)
     if (isMobile) {
       setMobileMenuOpen(false)

@@ -83,15 +83,7 @@ class AccountService(
                 }
             }
 
-            // 5. 如果设置为默认账户，取消其他账户的默认状态
-            if (request.isDefault) {
-                accountRepository.findByIsDefaultTrue()?.let { defaultAccount ->
-                    val updated = defaultAccount.copy(isDefault = false, updatedAt = System.currentTimeMillis())
-                    accountRepository.save(updated)
-                }
-            }
-
-            // 6. 获取代理地址（必须成功，否则导入失败）
+            // 5. 获取代理地址（必须成功，否则导入失败）
             val proxyAddress = runBlocking {
                 val proxyResult = blockchainService.getProxyAddress(request.walletAddress)
                 if (proxyResult.isSuccess) {
@@ -123,7 +115,7 @@ class AccountService(
                 apiSecret = encryptedApiSecret,  // 存储加密后的 API Secret
                 apiPassphrase = encryptedApiPassphrase,  // 存储加密后的 API Passphrase
                 accountName = request.accountName,
-                isDefault = request.isDefault,
+                isDefault = false,  // 不再支持默认账户
                 isEnabled = request.isEnabled,
                 createdAt = System.currentTimeMillis(),
                 updatedAt = System.currentTimeMillis()
@@ -153,21 +145,12 @@ class AccountService(
             // 更新账户名称
             val updatedAccountName = request.accountName ?: account.accountName
 
-            // 如果设置为默认账户，取消其他账户的默认状态
-            val updatedIsDefault = request.isDefault ?: account.isDefault
-            if (updatedIsDefault && !account.isDefault) {
-                accountRepository.findByIsDefaultTrue()?.let { defaultAccount ->
-                    val updated = defaultAccount.copy(isDefault = false, updatedAt = System.currentTimeMillis())
-                    accountRepository.save(updated)
-                }
-            }
-
             // 更新启用状态
             val updatedIsEnabled = request.isEnabled ?: account.isEnabled
 
             val updated = account.copy(
                 accountName = updatedAccountName,
-                isDefault = updatedIsDefault,
+                isDefault = account.isDefault,  // 保持原值，不再支持修改
                 isEnabled = updatedIsEnabled,
                 updatedAt = System.currentTimeMillis()
             )
@@ -195,22 +178,6 @@ class AccountService(
 
             // 注意：不再检查活跃订单，允许用户删除有活跃订单的账户
             // 前端会显示确认提示框，由用户决定是否删除
-
-            // 如果删除的是默认账户，需要先设置其他账户为默认
-            if (account.isDefault) {
-                val otherAccounts = accountRepository.findAllByOrderByCreatedAtAsc()
-                    .filter { it.id != accountId }
-
-                if (otherAccounts.isNotEmpty()) {
-                    val newDefault = otherAccounts.first().copy(
-                        isDefault = true,
-                        updatedAt = System.currentTimeMillis()
-                    )
-                    accountRepository.save(newDefault)
-                } else {
-                    return Result.failure(IllegalStateException("不能删除最后一个账户"))
-                }
-            }
 
             accountRepository.delete(account)
 
@@ -249,13 +216,12 @@ class AccountService(
      */
     fun getAccountDetail(accountId: Long?): Result<AccountDto> {
         return try {
-            val account = if (accountId != null) {
-                accountRepository.findById(accountId).orElse(null)
-            } else {
-                accountRepository.findByIsDefaultTrue()
+            if (accountId == null) {
+                return Result.failure(IllegalArgumentException("账户ID不能为空"))
             }
-
-            account ?: return Result.failure(IllegalArgumentException("账户不存在"))
+            
+            val account = accountRepository.findById(accountId).orElse(null)
+                ?: return Result.failure(IllegalArgumentException("账户不存在"))
 
             Result.success(toDto(account))
         } catch (e: Exception) {
@@ -270,13 +236,12 @@ class AccountService(
      */
     fun getAccountBalance(accountId: Long?): Result<AccountBalanceResponse> {
         return try {
-            val account = if (accountId != null) {
-                accountRepository.findById(accountId).orElse(null)
-            } else {
-                accountRepository.findByIsDefaultTrue()
+            if (accountId == null) {
+                return Result.failure(IllegalArgumentException("账户ID不能为空"))
             }
-
-            account ?: return Result.failure(IllegalArgumentException("账户不存在"))
+            
+            val account = accountRepository.findById(accountId).orElse(null)
+                ?: return Result.failure(IllegalArgumentException("账户不存在"))
 
             // 检查代理地址是否存在
             if (account.proxyAddress.isBlank()) {
@@ -353,34 +318,6 @@ class AccountService(
     }
 
     /**
-     * 设置默认账户
-     */
-    @Transactional
-    fun setDefaultAccount(accountId: Long): Result<Unit> {
-        return try {
-            val account = accountRepository.findById(accountId)
-                .orElse(null) ?: return Result.failure(IllegalArgumentException("账户不存在"))
-
-            // 取消其他账户的默认状态
-            accountRepository.findByIsDefaultTrue()?.let { defaultAccount ->
-                if (defaultAccount.id != account.id) {
-                    val updated = defaultAccount.copy(isDefault = false, updatedAt = System.currentTimeMillis())
-                    accountRepository.save(updated)
-                }
-            }
-
-            // 设置当前账户为默认
-            val updated = account.copy(isDefault = true, updatedAt = System.currentTimeMillis())
-            accountRepository.save(updated)
-
-            Result.success(Unit)
-        } catch (e: Exception) {
-            logger.error("设置默认账户失败", e)
-            Result.failure(e)
-        }
-    }
-
-    /**
      * 转换为 DTO
      * 包含交易统计数据（总订单数、总盈亏、活跃订单数、已完成订单数、持仓数量）
      */
@@ -392,7 +329,6 @@ class AccountService(
                 walletAddress = account.walletAddress,
                 proxyAddress = account.proxyAddress,
                 accountName = account.accountName,
-                isDefault = account.isDefault,
                 isEnabled = account.isEnabled,
                 apiKeyConfigured = account.apiKey != null,
                 apiSecretConfigured = account.apiSecret != null,
@@ -643,6 +579,16 @@ class AccountService(
                                 // 使用 eq 方法判断值是否等于 0
                                 val isCurrent = !currentValue.eq(BigDecimal.ZERO) && !curPrice.eq(BigDecimal.ZERO)
 
+                                // 将 Double 转换为精确的 BigDecimal，保留完整精度
+                                val sizeDecimal = pos.size?.let { 
+                                    BigDecimal.valueOf(it)  // 使用 BigDecimal.valueOf 保留 Double 的完整精度
+                                } ?: BigDecimal.ZERO
+                                
+                                // 显示用的数量（保留4位小数，用于显示）
+                                val displayQuantity = sizeDecimal.setScale(4, java.math.RoundingMode.DOWN).toPlainString()
+                                // 原始数量（保留完整精度，用于100%出售）
+                                val originalQuantity = sizeDecimal.toPlainString()
+
                                 val positionDto = AccountPositionDto(
                                     accountId = account.id!!,
                                     accountName = account.accountName,
@@ -654,7 +600,8 @@ class AccountService(
                                     marketIcon = pos.icon,  // 市场图标
                                     side = pos.outcome ?: "",
                                     outcomeIndex = pos.outcomeIndex,  // 添加 outcomeIndex
-                                    quantity = pos.size?.toString() ?: "0",
+                                    quantity = displayQuantity,  // 显示用的数量
+                                    originalQuantity = originalQuantity,  // 原始数量（完整精度）
                                     avgPrice = pos.avgPrice?.toString() ?: "0",
                                     currentPrice = pos.curPrice?.toString() ?: "0",
                                     currentValue = pos.currentValue?.toString() ?: "0",
@@ -710,9 +657,33 @@ class AccountService(
                 return Result.failure(IllegalStateException("账户未配置API凭证，无法创建订单"))
             }
 
-            // 2. 验证仓位是否存在且数量足够
+            // 2. 验证参数：percent 和 quantity 至少提供一个
+            if (request.percent.isNullOrBlank() && request.quantity.isNullOrBlank()) {
+                return Result.failure(IllegalArgumentException("必须提供卖出数量(quantity)或卖出百分比(percent)"))
+            }
+            
+            if (!request.percent.isNullOrBlank() && !request.quantity.isNullOrBlank()) {
+                return Result.failure(IllegalArgumentException("不能同时提供卖出数量(quantity)和卖出百分比(percent)"))
+            }
+            
+            // 验证百分比值（如果提供了）
+            val percentDecimal = if (!request.percent.isNullOrBlank()) {
+                try {
+                    val percent = request.percent!!.toSafeBigDecimal()
+                    if (percent <= BigDecimal.ZERO || percent > BigDecimal.valueOf(100)) {
+                        return Result.failure(IllegalArgumentException("卖出百分比必须在 0-100 之间"))
+                    }
+                    percent
+                } catch (e: Exception) {
+                    return Result.failure(IllegalArgumentException("卖出百分比格式不正确: ${e.message}"))
+                }
+            } else {
+                null
+            }
+
+            // 3. 验证仓位是否存在并获取原始数量
             val positionsResult = getAllPositions()
-            positionsResult.fold(
+            val (position, originalQuantity) = positionsResult.fold(
                 onSuccess = { positionListResponse ->
                     val position = positionListResponse.currentPositions.find {
                         it.accountId == request.accountId &&
@@ -724,23 +695,49 @@ class AccountService(
                         return Result.failure(IllegalArgumentException("仓位不存在"))
                     }
 
-                    val positionQuantity = position.quantity.toSafeBigDecimal()
-                    val sellQuantity = request.quantity.toSafeBigDecimal()
-
-                    if (sellQuantity <= BigDecimal.ZERO) {
-                        return Result.failure(IllegalArgumentException("卖出数量必须大于0"))
+                    // 获取原始数量：如果有 originalQuantity 使用它，否则从 API 重新获取
+                    val originalQty = if (position.originalQuantity != null) {
+                        position.originalQuantity.toSafeBigDecimal()
+                    } else {
+                        // 如果没有 originalQuantity，从区块链服务重新获取原始数据
+                        val blockchainPositionsResult = blockchainService.getPositions(account.proxyAddress)
+                        if (blockchainPositionsResult.isSuccess) {
+                            val blockchainPos = blockchainPositionsResult.getOrNull()?.find {
+                                it.conditionId == request.marketId && it.outcome == request.side
+                            }
+                            blockchainPos?.size?.let { BigDecimal.valueOf(it) } ?: position.quantity.toSafeBigDecimal()
+                        } else {
+                            position.quantity.toSafeBigDecimal()
+                        }
                     }
-
-                    if (sellQuantity > positionQuantity) {
-                        return Result.failure(IllegalArgumentException("卖出数量不能超过持仓数量"))
-                    }
+                    
+                    Pair(position, originalQty)
                 },
                 onFailure = { e ->
                     return Result.failure(Exception("查询仓位失败: ${e.message}"))
                 }
-            )
+            ) ?: return Result.failure(IllegalArgumentException("仓位不存在"))
 
-            // 3. 获取 tokenId（从 conditionId 和 outcomeIndex 计算）
+            // 4. 计算实际卖出数量
+            val sellQuantity = if (percentDecimal != null) {
+                // 使用百分比计算：原始数量 * 百分比 / 100
+                originalQuantity.multiply(percentDecimal)
+                    .divide(BigDecimal.valueOf(100), 8, java.math.RoundingMode.DOWN)
+            } else {
+                // 使用手动输入的数量
+                request.quantity!!.toSafeBigDecimal()
+            }
+
+            // 5. 验证卖出数量
+            if (sellQuantity <= BigDecimal.ZERO) {
+                return Result.failure(IllegalArgumentException("卖出数量必须大于0"))
+            }
+
+            if (sellQuantity > originalQuantity) {
+                return Result.failure(IllegalArgumentException("卖出数量不能超过持仓数量"))
+            }
+
+            // 6. 获取 tokenId（从 conditionId 和 outcomeIndex 计算）
             // 需要先获取 tokenId，以便后续通过 CLOB API 获取三元及以上市场的价格
             // 优先使用 outcomeIndex，如果没有则尝试从 side 推断（仅支持 YES/NO）
             val tokenIdResult = if (request.outcomeIndex != null) {
@@ -762,12 +759,12 @@ class AccountService(
                 logger.warn("无法获取 tokenId，将使用 market 参数: conditionId=${request.marketId}, side=${request.side}, outcomeIndex=${request.outcomeIndex}, error=${tokenIdResult.exceptionOrNull()?.message}")
             }
 
-            // 4. 验证 tokenId
+            // 7. 验证 tokenId
             if (tokenId == null) {
                 return Result.failure(IllegalStateException("无法获取 tokenId，无法创建订单。请确保已配置 Ethereum RPC URL 或提供 outcomeIndex 参数"))
             }
 
-            // 5. 确定卖出价格
+            // 8. 确定卖出价格
             // 市价单：从订单表获取最优价（通过 tokenId 获取对应 outcome 的订单表）
             // - 市价卖单：从订单表获取 bestBid（最高买入价），然后减去 SELL_PRICE_ADJUSTMENT
             // - 市价买单：从订单表获取 bestAsk（最低卖出价），然后加上 BUY_PRICE_ADJUSTMENT
@@ -788,13 +785,13 @@ class AccountService(
                 request.price ?: return Result.failure(IllegalArgumentException("限价订单必须提供价格"))
             }
 
-            // 6. 验证价格
+            // 9. 验证价格
             val priceDecimal = sellPrice.toSafeBigDecimal()
             if (priceDecimal <= BigDecimal.ZERO) {
                 return Result.failure(IllegalArgumentException("价格必须大于0"))
             }
 
-            // 7. 确定订单类型和过期时间
+            // 10. 确定订单类型和过期时间
             // 根据官方文档：
             // - GTC (Good-Til-Cancelled): expiration 必须为 "0"
             // - GTD (Good-Til-Date): expiration 为具体的 Unix 时间戳（秒）
@@ -813,7 +810,7 @@ class AccountService(
             // 7. 解密私钥
             val decryptedPrivateKey = decryptPrivateKey(account)
 
-            // 8. 创建并签名订单
+            // 11. 创建并签名订单（使用计算后的卖出数量）
             val signedOrder = try {
                 orderSigningService.createAndSignOrder(
                     privateKey = decryptedPrivateKey,
@@ -821,7 +818,7 @@ class AccountService(
                     tokenId = tokenId,
                     side = "SELL",
                     price = sellPrice,
-                    size = request.quantity,
+                    size = sellQuantity.toPlainString(),  // 使用计算后的卖出数量
                     signatureType = 2,  // Browser Wallet（与正确订单数据一致）
                     nonce = "0",
                     feeRateBps = "0",
@@ -832,7 +829,7 @@ class AccountService(
                 return Result.failure(Exception("创建并签名订单失败: ${e.message}"))
             }
 
-            // 8. 构建订单请求
+            // 12. 构建订单请求
 
             val newOrderRequest = com.wrbug.polymarketbot.api.NewOrderRequest(
                 order = signedOrder,
@@ -841,7 +838,7 @@ class AccountService(
                 deferExec = false
             )
 
-            // 9. 解密 API 凭证并使用账户的API凭证创建订单
+            // 13. 解密 API 凭证并使用账户的API凭证创建订单
             val apiSecret = try {
                 decryptApiSecret(account)
             } catch (e: Exception) {
@@ -874,7 +871,7 @@ class AccountService(
                             marketId = request.marketId,
                             side = request.side,
                             orderType = request.orderType,
-                            quantity = request.quantity,
+                            quantity = sellQuantity.toPlainString(),  // 使用计算后的卖出数量
                             price = if (request.orderType == "LIMIT") sellPrice else null,
                             status = "pending",  // 订单状态需要从响应中获取
                             createdAt = System.currentTimeMillis()

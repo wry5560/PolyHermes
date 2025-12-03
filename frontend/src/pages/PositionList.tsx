@@ -30,6 +30,7 @@ const PositionList: React.FC = () => {
   const [orderType, setOrderType] = useState<'MARKET' | 'LIMIT'>('LIMIT')
   const [sellQuantity, setSellQuantity] = useState<string>('')
   const [limitPrice, setLimitPrice] = useState<string>('')
+  const [selectedPercent, setSelectedPercent] = useState<string | null>(null)  // 记录选择的百分比（字符串格式）
   const [form] = Form.useForm()
   const [submitting, setSubmitting] = useState(false)
   const [wsConnected, setWsConnected] = useState(false)
@@ -361,6 +362,7 @@ const PositionList: React.FC = () => {
     setOrderType('LIMIT')
     setSellQuantity('')
     setLimitPrice('')
+    setSelectedPercent(null)  // 重置百分比选择
     form.resetFields()
     
     // 加载市场价格
@@ -382,6 +384,9 @@ const PositionList: React.FC = () => {
   // 处理数量快捷按钮
   const handleQuantityQuickSelect = (percent: number) => {
     if (!selectedPosition) return
+    // 记录选择的百分比（转为字符串，避免精度问题）
+    setSelectedPercent(percent.toString())
+    // 计算显示用的数量（用于预览，使用显示数量即可）
     const quantity = parseFloat(selectedPosition.quantity)
     const sellQty = (quantity * percent / 100).toFixed(4)
     setSellQuantity(sellQty)
@@ -440,7 +445,12 @@ const PositionList: React.FC = () => {
         side: selectedPosition.side,
         outcomeIndex: selectedPosition.outcomeIndex,  // 传递 outcomeIndex
         orderType: orderType,
-        quantity: sellQuantity,
+        // 如果选择了百分比，只传递百分比，不传 quantity
+        // 如果手动输入，只传递 quantity，不传 percent
+        ...(selectedPercent != null 
+          ? { percent: selectedPercent } 
+          : { quantity: sellQuantity }
+        ),
         price: orderType === 'LIMIT' ? limitPrice : undefined
       }
       
@@ -452,6 +462,7 @@ const PositionList: React.FC = () => {
         // 重置表单
         setSellQuantity('')
         setLimitPrice('')
+        setSelectedPercent(null)  // 重置百分比选择
         form.resetFields()
         // 仓位列表会通过WebSocket自动更新
       } else {
@@ -1371,6 +1382,8 @@ const PositionList: React.FC = () => {
                 onChange={(e) => {
                   const newQuantity = e.target.value
                   setSellQuantity(newQuantity)
+                  // 用户手动输入时，清除百分比选择
+                  setSelectedPercent(null)
                   if (newQuantity) {
                     const price = getCurrentSellPrice()
                     calculatePnl(newQuantity, price)

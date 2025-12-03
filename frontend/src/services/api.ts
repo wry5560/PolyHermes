@@ -185,12 +185,6 @@ export const apiService = {
       apiClient.post<ApiResponse<any>>('/copy-trading/accounts/balance', data),
     
     /**
-     * 设置默认账户
-     */
-    setDefault: (data: { accountId: number }) => 
-      apiClient.post<ApiResponse<void>>('/copy-trading/accounts/set-default', data),
-    
-    /**
      * 查询所有账户的仓位列表
      */
     positionsList: () => 

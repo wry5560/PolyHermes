@@ -15,7 +15,6 @@ export interface Account {
   walletAddress: string
   proxyAddress: string  // Polymarket 代理钱包地址
   accountName?: string
-  isDefault: boolean
   isEnabled?: boolean  // 是否启用
   apiKeyConfigured: boolean
   apiSecretConfigured: boolean
@@ -43,7 +42,6 @@ export interface AccountImportRequest {
   privateKey: string
   walletAddress: string
   accountName?: string
-  isDefault?: boolean
 }
 
 /**
@@ -52,7 +50,6 @@ export interface AccountImportRequest {
 export interface AccountUpdateRequest {
   accountId: number
   accountName?: string
-  isDefault?: boolean
 }
 
 /**
@@ -287,7 +284,8 @@ export interface AccountPosition {
   marketIcon?: string  // 市场图标 URL
   side: string  // 结果名称（如 "YES", "NO", "Pakistan" 等）
   outcomeIndex?: number  // 结果索引（0, 1, 2...），用于计算 tokenId
-  quantity: string
+  quantity: string  // 显示用的数量（可能被截位）
+  originalQuantity?: string  // 原始数量（保留完整精度，用于100%出售）
   avgPrice: string
   currentPrice: string
   currentValue: string
@@ -319,7 +317,8 @@ export interface PositionSellRequest {
   side: string  // 结果名称（如 "YES", "NO", "Pakistan" 等）
   outcomeIndex?: number  // 结果索引（0, 1, 2...），用于计算 tokenId（推荐提供）
   orderType: 'MARKET' | 'LIMIT'
-  quantity: string
+  quantity?: string  // 卖出数量（可选，手动输入时使用）
+  percent?: string  // 卖出百分比（可选，BigDecimal字符串，支持小数，0-100之间，选择百分比按钮时使用）
   price?: string  // 限价订单必需
 }
 

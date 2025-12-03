@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Card, Table, Button, Space, Tag, Popconfirm, message, Typography, Spin, Modal, Descriptions, Divider, Form, Input, Checkbox, Alert } from 'antd'
+import { Card, Table, Button, Space, Tag, Popconfirm, message, Typography, Spin, Modal, Descriptions, Divider, Form, Input, Alert } from 'antd'
 import { PlusOutlined, ReloadOutlined, EditOutlined, CopyOutlined } from '@ant-design/icons'
 import { useAccountStore } from '../store/accountStore'
 import type { Account } from '../types'
@@ -154,8 +154,7 @@ const AccountList: React.FC = () => {
         accountName: accountDetail.accountName || '',
         apiKey: '',  // 不显示实际值，留空表示不修改
         apiSecret: '',  // 不显示实际值，留空表示不修改
-        apiPassphrase: '',  // 不显示实际值，留空表示不修改
-        isDefault: accountDetail.isDefault || false
+        apiPassphrase: ''  // 不显示实际值，留空表示不修改
       })
     } catch (error: any) {
       console.error('打开编辑失败:', error)
@@ -173,8 +172,7 @@ const AccountList: React.FC = () => {
       // 构建更新请求，空字符串转换为 undefined（不修改）
       const updateData: any = {
         accountId: editAccount.id,
-        accountName: values.accountName || undefined,
-        isDefault: values.isDefault || false
+        accountName: values.accountName || undefined
       }
       
       // 只有非空字符串才更新 API 凭证
@@ -814,13 +812,6 @@ const AccountList: React.FC = () => {
               help="留空表示不修改，输入新值将更新 API Passphrase"
             >
               <Input.Password placeholder="留空表示不修改" />
-            </Form.Item>
-            
-            <Form.Item
-              name="isDefault"
-              valuePropName="checked"
-            >
-              <Checkbox>设为默认账户</Checkbox>
             </Form.Item>
             
             <Form.Item>

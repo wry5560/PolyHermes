@@ -74,7 +74,6 @@ const AccountDetail: React.FC = () => {
       const updateData: any = {
         accountId: account.id,
         accountName: values.accountName || undefined,
-        isDefault: values.isDefault || false
       }
       
       // 只有非空字符串才更新 API 凭证
@@ -163,8 +162,7 @@ const AccountDetail: React.FC = () => {
                 accountName: account.accountName || '',
                 apiKey: '',  // 不显示实际值，留空表示不修改
                 apiSecret: '',  // 不显示实际值，留空表示不修改
-                apiPassphrase: '',  // 不显示实际值，留空表示不修改
-                isDefault: account.isDefault || false
+                apiPassphrase: ''  // 不显示实际值，留空表示不修改
               })
             }}
             size={isMobile ? 'middle' : 'large'}
@@ -202,11 +200,6 @@ const AccountDetail: React.FC = () => {
             }}>
               {account.walletAddress}
             </span>
-          </Descriptions.Item>
-          <Descriptions.Item label="默认账户">
-            <Tag color={account.isDefault ? 'gold' : 'default'}>
-              {account.isDefault ? '是' : '否'}
-            </Tag>
           </Descriptions.Item>
           <Descriptions.Item label="账户余额">
             {balanceLoading ? (
@@ -376,13 +369,6 @@ const AccountDetail: React.FC = () => {
               help="留空表示不修改，输入新值将更新 API Passphrase"
             >
               <Input.Password placeholder="留空表示不修改" />
-            </Form.Item>
-            
-            <Form.Item
-              name="isDefault"
-              valuePropName="checked"
-            >
-              <Checkbox>设为默认账户</Checkbox>
             </Form.Item>
             
             <Form.Item>

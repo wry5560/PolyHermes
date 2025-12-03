@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Card, Form, Input, Button, message, Typography, Space, Alert, Checkbox } from 'antd'
+import { Card, Form, Input, Button, message, Typography, Space } from 'antd'
 import { ArrowLeftOutlined } from '@ant-design/icons'
 import { useAccountStore } from '../store/accountStore'
 import { useMediaQuery } from 'react-responsive'
@@ -37,8 +37,7 @@ const AccountEdit: React.FC = () => {
       
       // 设置表单初始值
       form.setFieldsValue({
-        accountName: accountData.accountName || '',
-        isDefault: accountData.isDefault || false
+        accountName: accountData.accountName || ''
       })
     } catch (error: any) {
       message.error(error.message || '获取账户详情失败')
@@ -55,8 +54,7 @@ const AccountEdit: React.FC = () => {
       // 构建更新请求
       const updateData: any = {
         accountId: Number(accountId),
-        accountName: values.accountName || undefined,
-        isDefault: values.isDefault || false
+        accountName: values.accountName || undefined
       }
       
       await updateAccount(updateData)
@@ -119,20 +117,6 @@ const AccountEdit: React.FC = () => {
             <Input placeholder="账户名称（可选）" />
           </Form.Item>
           
-          <Alert
-            message="API Key 管理"
-            description="API Key 由系统自动管理，无需手动更新。如需重新获取 API Key，请删除并重新导入账户。"
-            type="info"
-            showIcon
-            style={{ marginBottom: '24px' }}
-          />
-          
-          <Form.Item
-            name="isDefault"
-            valuePropName="checked"
-          >
-            <Checkbox>设为默认账户</Checkbox>
-          </Form.Item>
           
           <Form.Item>
             <Space>

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { Card, Form, Input, Button, message, Typography } from 'antd'
 import { UserOutlined, LockOutlined } from '@ant-design/icons'
 import { apiService } from '../services/api'
@@ -94,6 +94,11 @@ const Login: React.FC = () => {
             >
               登录
             </Button>
+          </Form.Item>
+          <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
+            <Link to="/reset-password" style={{ fontSize: isMobile ? '14px' : '13px' }}>
+              忘记密码？重置密码
+            </Link>
           </Form.Item>
         </Form>
       </Card>

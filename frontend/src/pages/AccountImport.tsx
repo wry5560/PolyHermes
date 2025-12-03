@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Card, Form, Input, Button, message, Typography, Radio, Space, Alert, Checkbox } from 'antd'
+import { Card, Form, Input, Button, message, Typography, Radio, Space, Alert } from 'antd'
 import { ArrowLeftOutlined } from '@ant-design/icons'
 import { useAccountStore } from '../store/accountStore'
 import { 
@@ -135,8 +135,7 @@ const AccountImport: React.FC = () => {
       await importAccount({
         privateKey: privateKey,
         walletAddress: walletAddress,
-        accountName: values.accountName,
-        isDefault: values.isDefault || false
+        accountName: values.accountName
       })
       
       message.success('导入账户成功')
@@ -302,20 +301,6 @@ const AccountImport: React.FC = () => {
             <Input placeholder="可选，用于标识账户" />
           </Form.Item>
           
-          <Alert
-            message="API Key 自动获取"
-            description="系统将自动从 Polymarket 获取或创建 API Key，无需手动输入。"
-            type="info"
-            showIcon
-            style={{ marginBottom: '24px' }}
-          />
-          
-          <Form.Item
-            name="isDefault"
-            valuePropName="checked"
-          >
-            <Checkbox>设为默认账户</Checkbox>
-          </Form.Item>
           
           <Form.Item>
             <Space>

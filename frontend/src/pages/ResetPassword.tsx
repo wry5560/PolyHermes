@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { Card, Form, Input, Button, message, Typography, Alert, Progress } from 'antd'
 import { LockOutlined, KeyOutlined, UserOutlined } from '@ant-design/icons'
 import { apiService } from '../services/api'
@@ -52,7 +51,6 @@ const getPasswordStrengthInfo = (strength: number): { text: string; color: strin
 }
 
 const ResetPassword: React.FC = () => {
-  const navigate = useNavigate()
   const isMobile = useMediaQuery({ maxWidth: 768 })
   const [loading, setLoading] = useState(false)
   const [passwordStrength, setPasswordStrength] = useState(0)
@@ -77,11 +75,11 @@ const ResetPassword: React.FC = () => {
         newPassword: values.newPassword
       })
       if (response.data.code === 0) {
-        message.success('密码重置成功，请登录')
-        // 延迟跳转到登录页，让用户看到成功提示
+        message.success('密码重置成功', 1)
+        // 使用 window.location.href 强制跳转到登录页，确保跳转成功
         setTimeout(() => {
-          navigate('/login', { replace: true })
-        }, 1000)
+          window.location.href = '/login'
+        }, 500)
       } else {
         message.error(response.data.msg || '密码重置失败')
       }

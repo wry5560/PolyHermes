@@ -7,7 +7,6 @@ data class AccountImportRequest(
     val privateKey: String,  // 私钥（前端加密后传输）
     val walletAddress: String,  // 钱包地址（前端从私钥推导，用于验证）
     val accountName: String? = null,
-    val isDefault: Boolean = false,
     val isEnabled: Boolean = true  // 是否启用（用于订单推送等功能的开关）
 )
 
@@ -17,7 +16,6 @@ data class AccountImportRequest(
 data class AccountUpdateRequest(
     val accountId: Long,
     val accountName: String? = null,
-    val isDefault: Boolean? = null,
     val isEnabled: Boolean? = null  // 是否启用（用于订单推送等功能的开关）
 )
 
@@ -32,21 +30,14 @@ data class AccountDeleteRequest(
  * 账户详情请求
  */
 data class AccountDetailRequest(
-    val accountId: Long? = null  // 不提供则返回默认账户
+    val accountId: Long? = null  // 账户ID（必需）
 )
 
 /**
  * 账户余额请求
  */
 data class AccountBalanceRequest(
-    val accountId: Long? = null  // 不提供则查询默认账户
-)
-
-/**
- * 设置默认账户请求
- */
-data class SetDefaultAccountRequest(
-    val accountId: Long
+    val accountId: Long? = null  // 账户ID（必需）
 )
 
 /**
@@ -57,7 +48,6 @@ data class AccountDto(
     val walletAddress: String,
     val proxyAddress: String,  // Polymarket 代理钱包地址
     val accountName: String?,
-    val isDefault: Boolean,
     val isEnabled: Boolean,  // 是否启用（用于订单推送等功能的开关）
     val apiKeyConfigured: Boolean,  // API Key 是否已配置（不返回实际 Key）
     val apiSecretConfigured: Boolean,  // API Secret 是否已配置
@@ -114,7 +104,8 @@ data class AccountPositionDto(
     val marketIcon: String?,  // 市场图标 URL
     val side: String,  // 结果名称（如 "YES", "NO", "Pakistan" 等）
     val outcomeIndex: Int? = null,  // 结果索引（0, 1, 2...），用于计算 tokenId
-    val quantity: String,
+    val quantity: String,  // 显示用的数量（可能被截位）
+    val originalQuantity: String? = null,  // 原始数量（保留完整精度，用于100%出售）
     val avgPrice: String,
     val currentPrice: String,
     val currentValue: String,
@@ -146,7 +137,8 @@ data class PositionSellRequest(
     val side: String,              // 结果名称（如 "YES", "NO", "Pakistan" 等）（必需）
     val outcomeIndex: Int? = null, // 结果索引（0, 1, 2...），用于计算 tokenId（推荐提供）
     val orderType: String,         // 订单类型：MARKET（市价）或 LIMIT（限价）（必需）
-    val quantity: String,          // 卖出数量（必需，BigDecimal字符串）
+    val quantity: String? = null,  // 卖出数量（可选，BigDecimal字符串，手动输入时使用）
+    val percent: String? = null,   // 卖出百分比（可选，BigDecimal字符串，支持小数，0-100之间，选择百分比按钮时使用）
     val price: String? = null      // 限价价格（限价订单必需，市价订单不需要）
 )
 

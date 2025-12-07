@@ -23,7 +23,7 @@ import {
 } from '@ant-design/icons'
 import type { MenuProps } from 'antd'
 import type { ReactNode } from 'react'
-import { removeToken } from '../utils'
+import { removeToken, getVersionText, getGitHubTagUrl } from '../utils'
 import { wsManager } from '../services/websocket'
 import Logo from './Logo'
 
@@ -200,10 +200,33 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           alignItems: 'center',
           justifyContent: 'space-between'
         }}>
-          <Logo 
-            size="normal" 
-            darkMode={true}
-          />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Logo 
+              size="normal" 
+              darkMode={true}
+            />
+            <a
+              href={getGitHubTagUrl()}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => {
+                const version = getVersionText()
+                if (version === 'dev') {
+                  e.preventDefault()
+                }
+              }}
+              style={{
+                color: 'rgba(255, 255, 255, 0.7)',
+                fontSize: '12px',
+                fontWeight: 'normal',
+                textDecoration: 'none',
+                cursor: getVersionText() === 'dev' ? 'default' : 'pointer'
+              }}
+              title={getVersionText() === 'dev' ? '' : '查看版本发布'}
+            >
+              v{getVersionText()}
+            </a>
+          </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <a
               href="https://github.com/WrBug/PolyHermes"
@@ -292,9 +315,36 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             fontSize: '18px',
             fontWeight: 'bold',
             marginBottom: '12px',
-            textAlign: 'center'
+            textAlign: 'center',
+            display: 'flex',
+            alignItems: 'flex-end',
+            justifyContent: 'center',
+            gap: '6px'
           }}>
-            PolyHermes
+            <span>PolyHermes</span>
+            <a
+              href={getGitHubTagUrl()}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => {
+                const version = getVersionText()
+                if (version === 'dev') {
+                  e.preventDefault()
+                }
+              }}
+              style={{
+                color: 'rgba(255, 255, 255, 0.7)',
+                fontSize: '12px',
+                fontWeight: 'normal',
+                textDecoration: 'none',
+                cursor: getVersionText() === 'dev' ? 'default' : 'pointer',
+                lineHeight: '1',
+                paddingBottom: '2px'
+              }}
+              title={getVersionText() === 'dev' ? '' : '查看版本发布'}
+            >
+              v{getVersionText()}
+            </a>
           </div>
           <div style={{ 
             display: 'flex', 

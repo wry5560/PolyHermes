@@ -45,3 +45,10 @@ export {
   hasToken
 } from './auth'
 
+// 统一导出 version 相关工具函数
+export {
+  getVersionInfo,
+  getVersionText,
+  getGitHubTagUrl
+} from './version'
+

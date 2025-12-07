@@ -4,6 +4,16 @@ FROM node:18-alpine AS frontend-build
 
 WORKDIR /app/frontend
 
+# 定义构建参数（版本号信息）
+ARG VERSION=dev
+ARG GIT_TAG=
+ARG GITHUB_REPO_URL=https://github.com/WrBug/PolyHermes
+
+# 设置环境变量（用于 Vite 构建时注入）
+ENV VERSION=${VERSION}
+ENV GIT_TAG=${GIT_TAG}
+ENV GITHUB_REPO_URL=${GITHUB_REPO_URL}
+
 # 复制前端文件
 COPY frontend/package*.json ./
 RUN npm ci
@@ -11,6 +21,7 @@ RUN npm ci
 COPY frontend/ ./
 
 # 构建前端（使用相对路径，通过 Nginx 代理）
+# 版本号会通过环境变量注入到构建产物中
 RUN npm run build
 
 # 阶段2：构建后端

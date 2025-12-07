@@ -91,8 +91,21 @@ EOF
 
 # 构建并启动
 deploy() {
-    info "构建 Docker 镜像..."
-    docker-compose build
+    # 检查是否使用 Docker Hub 镜像
+    USE_DOCKER_HUB="${USE_DOCKER_HUB:-false}"
+    
+    if [ "$USE_DOCKER_HUB" = "true" ]; then
+        info "使用 Docker Hub 镜像（推荐生产环境）..."
+        info "拉取最新镜像..."
+        docker pull wrbug/polyhermes:latest || warn "拉取镜像失败，将使用本地构建"
+        
+        # 修改 docker-compose.yml 使用镜像而不是构建
+        # 注意：这里需要手动修改 docker-compose.yml，或者使用环境变量
+        warn "请确保 docker-compose.yml 中已配置使用 image: wrbug/polyhermes:latest"
+    else
+        info "构建 Docker 镜像（本地构建，版本号将显示为 dev）..."
+        docker-compose build
+    fi
     
     info "启动服务..."
     docker-compose up -d
@@ -114,6 +127,13 @@ main() {
     echo "=========================================="
     echo ""
     
+    # 解析参数
+    if [ "$1" = "--use-docker-hub" ] || [ "$1" = "-d" ]; then
+        export USE_DOCKER_HUB=true
+        info "将使用 Docker Hub 镜像（生产环境推荐）"
+        echo ""
+    fi
+    
     check_docker
     create_env_file
     deploy
@@ -121,6 +141,13 @@ main() {
     echo ""
     info "部署完成！"
     info "访问地址: http://localhost:${SERVER_PORT:-80}"
+    echo ""
+    if [ "$USE_DOCKER_HUB" != "true" ]; then
+        info "提示：本地构建的版本号显示为 'dev'"
+        info "生产环境推荐使用 Docker Hub 镜像："
+        info "  ./deploy.sh --use-docker-hub"
+        info "  或修改 docker-compose.yml 使用 image: wrbug/polyhermes:latest"
+    fi
 }
 
 main "$@"

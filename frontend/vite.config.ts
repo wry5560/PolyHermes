@@ -11,8 +11,21 @@ export default defineConfig(({ mode }) => {
   const API_URL = env.VITE_API_URL || 'http://localhost:8000'
   const WS_URL = env.VITE_WS_URL || 'ws://localhost:8000'
   
+  // 从环境变量获取版本信息（构建时注入）
+  const VERSION = env.VERSION || 'dev'
+  const GIT_TAG = env.GIT_TAG || ''
+  const GITHUB_REPO_URL = env.GITHUB_REPO_URL || 'https://github.com/WrBug/PolyHermes'
+  
   return {
     plugins: [react()],
+    define: {
+      // 注入版本信息到全局变量
+      'window.__VERSION__': JSON.stringify({
+        version: VERSION,
+        gitTag: GIT_TAG,
+        githubRepoUrl: GITHUB_REPO_URL
+      })
+    },
     server: {
       port: 3000,
       proxy: {

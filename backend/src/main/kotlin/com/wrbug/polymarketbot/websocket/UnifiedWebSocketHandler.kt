@@ -3,7 +3,7 @@ package com.wrbug.polymarketbot.websocket
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.wrbug.polymarketbot.dto.WebSocketMessage as WsMessage
 import com.wrbug.polymarketbot.dto.WebSocketMessageType
-import com.wrbug.polymarketbot.service.WebSocketSubscriptionService
+import com.wrbug.polymarketbot.service.common.WebSocketSubscriptionService
 import jakarta.annotation.PostConstruct
 import jakarta.annotation.PreDestroy
 import kotlinx.coroutines.*

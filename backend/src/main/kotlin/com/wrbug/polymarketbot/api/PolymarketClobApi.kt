@@ -227,7 +227,7 @@ data class CreateOrderRequest(
 
 @Deprecated("使用 NewOrderRequest 代替")
 data class CreateOrdersBatchRequest(
-    val orders: List<CreateOrderRequest>
+    val orders: List<NewOrderRequest>
 )
 
 data class CancelOrdersBatchRequest(

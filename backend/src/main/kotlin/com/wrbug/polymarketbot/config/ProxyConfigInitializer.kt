@@ -1,6 +1,6 @@
 package com.wrbug.polymarketbot.config
 
-import com.wrbug.polymarketbot.service.ProxyConfigService
+import com.wrbug.polymarketbot.service.system.ProxyConfigService
 import jakarta.annotation.PostConstruct
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component

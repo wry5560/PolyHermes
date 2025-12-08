@@ -145,31 +145,31 @@ export const apiService = {
      * 获取用户列表
      */
     list: () =>
-      apiClient.post<ApiResponse<any[]>>('/users/list', {}),
+      apiClient.post<ApiResponse<any[]>>('/system/users/list', {}),
     
     /**
      * 创建用户
      */
     create: (data: { username: string; password: string }) =>
-      apiClient.post<ApiResponse<any>>('/users/create', data),
+      apiClient.post<ApiResponse<any>>('/system/users/create', data),
     
     /**
      * 更新用户密码
      */
     updatePassword: (data: { userId: number; newPassword: string }) =>
-      apiClient.post<ApiResponse<void>>('/users/update-password', data),
+      apiClient.post<ApiResponse<void>>('/system/users/update-password', data),
     
     /**
      * 删除用户
      */
     delete: (data: { userId: number }) =>
-      apiClient.post<ApiResponse<void>>('/users/delete', data),
+      apiClient.post<ApiResponse<void>>('/system/users/delete', data),
     
     /**
      * 用户修改自己的密码
      */
     updateOwnPassword: (data: { newPassword: string }) =>
-      apiClient.post<ApiResponse<void>>('/users/update-own-password', data)
+      apiClient.post<ApiResponse<void>>('/system/users/update-own-password', data)
   },
   
   /**
@@ -203,61 +203,61 @@ export const apiService = {
      * 导入账户
      */
     import: (data: any) => 
-      apiClient.post<ApiResponse<any>>('/copy-trading/accounts/import', data),
+      apiClient.post<ApiResponse<any>>('/accounts/import', data),
     
     /**
      * 更新账户
      */
     update: (data: any) => 
-      apiClient.post<ApiResponse<any>>('/copy-trading/accounts/update', data),
+      apiClient.post<ApiResponse<any>>('/accounts/update', data),
     
     /**
      * 删除账户
      */
     delete: (data: { accountId: number }) => 
-      apiClient.post<ApiResponse<void>>('/copy-trading/accounts/delete', data),
+      apiClient.post<ApiResponse<void>>('/accounts/delete', data),
     
     /**
      * 查询账户列表
      */
     list: () => 
-      apiClient.post<ApiResponse<any>>('/copy-trading/accounts/list', {}),
+      apiClient.post<ApiResponse<any>>('/accounts/list', {}),
     
     /**
      * 查询账户详情
      */
     detail: (data: { accountId?: number }) => 
-      apiClient.post<ApiResponse<any>>('/copy-trading/accounts/detail', data),
+      apiClient.post<ApiResponse<any>>('/accounts/detail', data),
     
     /**
      * 查询账户余额
      */
     balance: (data: { accountId?: number }) => 
-      apiClient.post<ApiResponse<any>>('/copy-trading/accounts/balance', data),
+      apiClient.post<ApiResponse<any>>('/accounts/balance', data),
     
     /**
      * 查询所有账户的仓位列表
      */
     positionsList: () => 
-      apiClient.post<ApiResponse<any>>('/copy-trading/accounts/positions/list', {}),
+      apiClient.post<ApiResponse<any>>('/accounts/positions/list', {}),
     
     /**
      * 卖出仓位
      */
     sellPosition: (data: any) => 
-      apiClient.post<ApiResponse<any>>('/copy-trading/accounts/positions/sell', data),
+      apiClient.post<ApiResponse<any>>('/accounts/positions/sell', data),
     
     /**
      * 获取可赎回仓位统计
      */
     getRedeemableSummary: (data: { accountId?: number }) => 
-      apiClient.post<ApiResponse<any>>('/copy-trading/accounts/positions/redeemable-summary', data),
+      apiClient.post<ApiResponse<any>>('/accounts/positions/redeemable-summary', data),
     
     /**
      * 赎回仓位
      */
     redeemPositions: (data: any) => 
-      apiClient.post<ApiResponse<any>>('/copy-trading/accounts/positions/redeem', data),
+      apiClient.post<ApiResponse<any>>('/accounts/positions/redeem', data),
     
   },
   
@@ -269,13 +269,13 @@ export const apiService = {
      * 获取市场价格（通过 Gamma API）
      */
     getMarketPrice: (data: { marketId: string; outcomeIndex?: number }) => 
-      apiClient.post<ApiResponse<any>>('/copy-trading/markets/price', data),
+      apiClient.post<ApiResponse<any>>('/markets/price', data),
     
     /**
      * 获取最新价（从订单表获取，供前端下单时显示）
      */
     getLatestPrice: (data: { tokenId: string }) => 
-      apiClient.post<ApiResponse<any>>('/copy-trading/markets/latest-price', data)
+      apiClient.post<ApiResponse<any>>('/markets/latest-price', data)
   },
   
   /**
@@ -365,37 +365,37 @@ export const apiService = {
      * 2. 不提供 templateId：手动输入所有配置参数
      */
     create: (data: any) => 
-      apiClient.post<ApiResponse<any>>('/copy-trading/create', data),
+      apiClient.post<ApiResponse<any>>('/copy-trading/configs/create', data),
     
     /**
      * 更新跟单配置
      */
     update: (data: any) => 
-      apiClient.post<ApiResponse<any>>('/copy-trading/update', data),
+      apiClient.post<ApiResponse<any>>('/copy-trading/configs/update', data),
     
     /**
      * 查询跟单列表
      */
     list: (data: { accountId?: number; leaderId?: number; enabled?: boolean } = {}) => 
-      apiClient.post<ApiResponse<any>>('/copy-trading/list', data),
+      apiClient.post<ApiResponse<any>>('/copy-trading/configs/list', data),
     
     /**
      * 更新跟单状态（兼容旧接口）
      */
     updateStatus: (data: { copyTradingId: number; enabled: boolean }) => 
-      apiClient.post<ApiResponse<any>>('/copy-trading/update-status', data),
+      apiClient.post<ApiResponse<any>>('/copy-trading/configs/update-status', data),
     
     /**
      * 删除跟单
      */
     delete: (data: { copyTradingId: number }) => 
-      apiClient.post<ApiResponse<void>>('/copy-trading/delete', data),
+      apiClient.post<ApiResponse<void>>('/copy-trading/configs/delete', data),
     
     /**
      * 查询钱包绑定的跟单配置（兼容旧接口）
      */
     getAccountTemplates: (data: { accountId: number }) => 
-      apiClient.post<ApiResponse<any>>('/copy-trading/account-templates', data),
+      apiClient.post<ApiResponse<any>>('/copy-trading/configs/account-templates', data),
     
     /**
      * 查询被过滤订单列表
@@ -408,7 +408,7 @@ export const apiService = {
       startTime?: number
       endTime?: number
     }) => 
-      apiClient.post<ApiResponse<any>>('/copy-trading/filtered-orders', data)
+      apiClient.post<ApiResponse<any>>('/copy-trading/configs/filtered-orders', data)
   },
   
   /**
@@ -476,13 +476,13 @@ export const apiService = {
      * 获取当前代理配置
      */
     get: () =>
-      apiClient.post<ApiResponse<any>>('/proxy-config/get', {}),
+      apiClient.post<ApiResponse<any>>('/system/proxy/get', {}),
     
     /**
      * 获取所有代理配置
      */
     list: () =>
-      apiClient.post<ApiResponse<any[]>>('/proxy-config/list', {}),
+      apiClient.post<ApiResponse<any[]>>('/system/proxy/list', {}),
     
     /**
      * 保存 HTTP 代理配置
@@ -494,7 +494,7 @@ export const apiService = {
       username?: string
       password?: string
     }) =>
-      apiClient.post<ApiResponse<any>>('/proxy-config/http/save', data),
+      apiClient.post<ApiResponse<any>>('/system/proxy/http/save', data),
     
     /**
      * 检查代理是否可用
@@ -504,13 +504,13 @@ export const apiService = {
         success: boolean
         message: string
         responseTime?: number
-      }>>('/proxy-config/check', {}),
+      }>>('/system/proxy/check', {}),
     
     /**
      * 删除代理配置
      */
     delete: (data: { id: number }) =>
-      apiClient.post<ApiResponse<void>>('/proxy-config/delete', data),
+      apiClient.post<ApiResponse<void>>('/system/proxy/delete', data),
     
     /**
      * 检查所有 API 的健康状态
@@ -524,7 +524,7 @@ export const apiService = {
           message: string
           responseTime?: number
         }>
-      }>>('/proxy-config/api-health-check', {})
+      }>>('/system/proxy/api-health-check', {})
   },
   
   /**
@@ -535,49 +535,49 @@ export const apiService = {
      * 获取配置列表
      */
     list: (data?: { type?: string }) =>
-      apiClient.post<ApiResponse<NotificationConfig[]>>('/notifications/configs/list', data || {}),
+      apiClient.post<ApiResponse<NotificationConfig[]>>('/system/notifications/configs/list', data || {}),
     
     /**
      * 获取配置详情
      */
     detail: (data: { id: number }) =>
-      apiClient.post<ApiResponse<NotificationConfig>>('/notifications/configs/detail', data),
+      apiClient.post<ApiResponse<NotificationConfig>>('/system/notifications/configs/detail', data),
     
     /**
      * 创建配置
      */
     create: (data: NotificationConfigRequest) =>
-      apiClient.post<ApiResponse<NotificationConfig>>('/notifications/configs/create', data),
+      apiClient.post<ApiResponse<NotificationConfig>>('/system/notifications/configs/create', data),
     
     /**
      * 更新配置
      */
     update: (data: NotificationConfigUpdateRequest) =>
-      apiClient.post<ApiResponse<NotificationConfig>>('/notifications/configs/update', data),
+      apiClient.post<ApiResponse<NotificationConfig>>('/system/notifications/configs/update', data),
     
     /**
      * 更新启用状态
      */
     updateEnabled: (data: { id: number; enabled: boolean }) =>
-      apiClient.post<ApiResponse<NotificationConfig>>('/notifications/configs/update-enabled', data),
+      apiClient.post<ApiResponse<NotificationConfig>>('/system/notifications/configs/update-enabled', data),
     
     /**
      * 删除配置
      */
     delete: (data: { id: number }) =>
-      apiClient.post<ApiResponse<void>>('/notifications/configs/delete', data),
+      apiClient.post<ApiResponse<void>>('/system/notifications/configs/delete', data),
     
     /**
      * 测试通知
      */
     test: (data?: { message?: string }) =>
-      apiClient.post<ApiResponse<boolean>>('/notifications/test', data || {}),
+      apiClient.post<ApiResponse<boolean>>('/system/notifications/test', data || {}),
     
     /**
      * 获取 Telegram Chat IDs
      */
     getTelegramChatIds: (data: { botToken: string }) =>
-      apiClient.post<ApiResponse<string[]>>('/notifications/telegram/get-chat-ids', data)
+      apiClient.post<ApiResponse<string[]>>('/system/notifications/telegram/get-chat-ids', data)
   },
   
   /**

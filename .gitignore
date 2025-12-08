@@ -94,6 +94,13 @@ coverage/
 test-results/
 *.test.log
 
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
 # Misc
 *.bak
 *.backup

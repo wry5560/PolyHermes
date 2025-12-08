@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react'
-import { useParams, useSearchParams } from 'react-router-dom'
 import { Modal, Tabs } from 'antd'
 import { useTranslation } from 'react-i18next'
 import BuyOrdersTab from './BuyOrdersTab'

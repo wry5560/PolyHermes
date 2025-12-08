@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Modal, Row, Col, Statistic, Spin, message, Card } from 'antd'
+import { Modal, Row, Col, Statistic, Spin, message } from 'antd'
 import { ArrowUpOutlined, ArrowDownOutlined } from '@ant-design/icons'
 import { apiService } from '../../services/api'
 import { formatUSDC } from '../../utils'
@@ -59,11 +59,6 @@ const StatisticsModal: React.FC<StatisticsModalProps> = ({
     return num >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />
   }
   
-  const formatPercent = (value: string): string => {
-    const num = parseFloat(value)
-    if (isNaN(num)) return '-'
-    return `${num >= 0 ? '+' : ''}${num.toFixed(2)}%`
-  }
   
   return (
     <Modal
@@ -101,14 +96,6 @@ const StatisticsModal: React.FC<StatisticsModalProps> = ({
             <div style={{ fontSize: '16px', fontWeight: '500', color: '#333', flex: '1', textAlign: 'right', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px' }}>
               <ArrowDownOutlined style={{ color: '#ff4d4f', fontSize: '14px' }} />
               <span style={{ fontSize: 'clamp(12px, 4vw, 16px)' }}>{statistics.totalSellOrders}</span>
-            </div>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', borderBottom: '1px solid #f0f0f0' }}>
-            <div style={{ fontSize: '14px', color: '#666', flex: '0 0 auto', marginRight: '12px' }}>
-              {t('copyTradingOrders.totalMatchedOrders') || '总匹配订单数'}
-            </div>
-            <div style={{ fontSize: '16px', fontWeight: '500', color: '#333', flex: '1', textAlign: 'right' }}>
-              <span style={{ fontSize: 'clamp(12px, 4vw, 16px)' }}>{statistics.totalMatchedOrders || 0}</span>
             </div>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', borderBottom: '1px solid #f0f0f0' }}>
@@ -156,41 +143,6 @@ const StatisticsModal: React.FC<StatisticsModalProps> = ({
               <span style={{ fontSize: 'clamp(12px, 4vw, 16px)' }}>{formatUSDC(statistics.totalUnrealizedPnl)} USDC</span>
             </div>
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', borderBottom: '1px solid #f0f0f0' }}>
-            <div style={{ fontSize: '14px', color: '#666', flex: '0 0 auto', marginRight: '12px' }}>
-              {t('copyTradingOrders.winRate') || '胜率'}
-            </div>
-            <div style={{ fontSize: '16px', fontWeight: '500', color: '#333', flex: '1', textAlign: 'right' }}>
-              <span style={{ fontSize: 'clamp(12px, 4vw, 16px)' }}>{formatPercent(statistics.winRate)}</span>
-            </div>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', borderBottom: '1px solid #f0f0f0' }}>
-            <div style={{ fontSize: '14px', color: '#666', flex: '0 0 auto', marginRight: '12px' }}>
-              {t('copyTradingOrders.averagePnl') || '平均盈亏'}
-            </div>
-            <div style={{ fontSize: '16px', fontWeight: '500', color: getPnlColor(statistics.averagePnl), flex: '1', textAlign: 'right', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px' }}>
-              {getPnlIcon(statistics.averagePnl)}
-              <span style={{ fontSize: 'clamp(12px, 4vw, 16px)' }}>{formatUSDC(statistics.averagePnl)} USDC</span>
-            </div>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', borderBottom: '1px solid #f0f0f0' }}>
-            <div style={{ fontSize: '14px', color: '#666', flex: '0 0 auto', marginRight: '12px' }}>
-              {t('copyTradingOrders.maxPnl') || '最大盈亏'}
-            </div>
-            <div style={{ fontSize: '16px', fontWeight: '500', color: getPnlColor(statistics.maxPnl), flex: '1', textAlign: 'right', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px' }}>
-              {getPnlIcon(statistics.maxPnl)}
-              <span style={{ fontSize: 'clamp(12px, 4vw, 16px)' }}>{formatUSDC(statistics.maxPnl)} USDC</span>
-            </div>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px' }}>
-            <div style={{ fontSize: '14px', color: '#666', flex: '0 0 auto', marginRight: '12px' }}>
-              {t('copyTradingOrders.minPnl') || '最小盈亏'}
-            </div>
-            <div style={{ fontSize: '16px', fontWeight: '500', color: getPnlColor(statistics.minPnl), flex: '1', textAlign: 'right', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px' }}>
-              {getPnlIcon(statistics.minPnl)}
-              <span style={{ fontSize: 'clamp(12px, 4vw, 16px)' }}>{formatUSDC(statistics.minPnl)} USDC</span>
-            </div>
-          </div>
         </div>
       ) : (
         <div>
@@ -207,12 +159,6 @@ const StatisticsModal: React.FC<StatisticsModalProps> = ({
                 title={t('copyTradingOrders.totalSellOrders') || '总卖出订单数'}
                 value={statistics.totalSellOrders}
                 prefix={<ArrowDownOutlined style={{ color: '#ff4d4f' }} />}
-              />
-            </Col>
-            <Col xs={24} sm={12} md={8}>
-              <Statistic
-                title={t('copyTradingOrders.totalMatchedOrders') || '总匹配订单数'}
-                value={statistics.totalMatchedOrders || 0}
               />
             </Col>
             <Col xs={24} sm={12} md={8}>
@@ -256,40 +202,6 @@ const StatisticsModal: React.FC<StatisticsModalProps> = ({
                 suffix="USDC"
                 valueStyle={{ color: getPnlColor(statistics.totalUnrealizedPnl) }}
                 prefix={getPnlIcon(statistics.totalUnrealizedPnl)}
-              />
-            </Col>
-            <Col xs={24} sm={12} md={8}>
-              <Statistic
-                title={t('copyTradingOrders.winRate') || '胜率'}
-                value={formatPercent(statistics.winRate)}
-                suffix="%"
-              />
-            </Col>
-            <Col xs={24} sm={12} md={8}>
-              <Statistic
-                title={t('copyTradingOrders.averagePnl') || '平均盈亏'}
-                value={formatUSDC(statistics.averagePnl)}
-                suffix="USDC"
-                valueStyle={{ color: getPnlColor(statistics.averagePnl) }}
-                prefix={getPnlIcon(statistics.averagePnl)}
-              />
-            </Col>
-            <Col xs={24} sm={12} md={8}>
-              <Statistic
-                title={t('copyTradingOrders.maxPnl') || '最大盈亏'}
-                value={formatUSDC(statistics.maxPnl)}
-                suffix="USDC"
-                valueStyle={{ color: getPnlColor(statistics.maxPnl) }}
-                prefix={getPnlIcon(statistics.maxPnl)}
-              />
-            </Col>
-            <Col xs={24} sm={12} md={8}>
-              <Statistic
-                title={t('copyTradingOrders.minPnl') || '最小盈亏'}
-                value={formatUSDC(statistics.minPnl)}
-                suffix="USDC"
-                valueStyle={{ color: getPnlColor(statistics.minPnl) }}
-                prefix={getPnlIcon(statistics.minPnl)}
               />
             </Col>
           </Row>

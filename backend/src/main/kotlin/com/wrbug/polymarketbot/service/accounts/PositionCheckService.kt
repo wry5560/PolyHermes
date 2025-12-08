@@ -373,22 +373,22 @@ class PositionCheckService(
                     
                     if (position == null) {
                         // 仓位不存在，检查订单创建时间
-                        // 只有当订单创建时间超过30秒时，才认为仓位被出售了
+                        // 只有当订单创建时间超过2分钟时，才认为仓位被出售了
                         // 这样可以避免刚创建的订单因为API延迟而被误判为已卖出
                         val now = System.currentTimeMillis()
                         val ordersToMarkAsSold = orders.filter { order ->
                             val orderAge = now - order.createdAt
-                            orderAge > 30000  // 30秒 = 30000毫秒
+                            orderAge > 120000  // 2分钟 = 120000毫秒
                         }
                         
                         if (ordersToMarkAsSold.isNotEmpty()) {
-                            // 有订单创建时间超过30秒，认为仓位已被出售
+                            // 有订单创建时间超过2分钟，认为仓位已被出售
                             val currentPrice = getCurrentMarketPrice(marketId, outcomeIndex)
                             updateOrdersAsSold(ordersToMarkAsSold, currentPrice, copyTrading.id, marketId, outcomeIndex)
-                            logger.debug("仓位不存在且订单创建时间超过30秒，标记为已卖出: marketId=$marketId, outcomeIndex=$outcomeIndex, orderCount=${ordersToMarkAsSold.size}")
+                            logger.debug("仓位不存在且订单创建时间超过2分钟，标记为已卖出: marketId=$marketId, outcomeIndex=$outcomeIndex, orderCount=${ordersToMarkAsSold.size}")
                         } else {
-                            // 订单创建时间不足30秒，可能是刚创建的订单，暂时不处理
-                            logger.debug("仓位不存在但订单创建时间不足30秒，暂不标记为已卖出: marketId=$marketId, outcomeIndex=$outcomeIndex, orderCount=${orders.size}, oldestOrderAge=${orders.minOfOrNull { now - it.createdAt }?.let { "${it}ms" } ?: "N/A"}")
+                            // 订单创建时间不足2分钟，可能是刚创建的订单，暂时不处理
+                            logger.debug("仓位不存在但订单创建时间不足2分钟，暂不标记为已卖出: marketId=$marketId, outcomeIndex=$outcomeIndex, orderCount=${orders.size}, oldestOrderAge=${orders.minOfOrNull { now - it.createdAt }?.let { "${it}ms" } ?: "N/A"}")
                         }
                     } else {
                         // 有仓位，按订单下单顺序（FIFO）更新状态

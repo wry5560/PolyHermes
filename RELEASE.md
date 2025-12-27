@@ -1,3 +1,35 @@
+# v1.1.1
+
+## 🐛 Bug 修复
+
+### 修复移动端 API 健康页面缺少数据显示
+- 移动端添加 URL 地址显示
+- 移动端添加状态文本显示（正常/异常/未配置）
+- 移动端添加消息/状态信息显示
+- 移动端和桌面端显示信息保持一致
+
+### 优化 Telegram 推送消息格式
+- 添加价格和数量截位处理：
+  * 价格保留最多4位小数（截断，不四舍五入）
+  * 数量保留最多2位小数（截断，不四舍五入）
+- 优化账户信息显示格式：
+  * 有账户名和钱包地址时显示：账户名(0x123...123)
+  * 只有账户名时显示账户名
+  * 只有钱包地址时显示脱敏后的地址
+  * 都没有时显示未知账户
+
+### 配置优化
+- 移除 `polygon.rpc.url` 配置，使用 RpcNodeService 统一管理 RPC 节点
+- 删除无用的 `position.push` 配置项
+- 修正日志配置中的包名
+
+## 📚 文档更新
+
+- 统一发布说明文件，使用 RELEASE.md 替代版本化文件
+- 更新所有部署文档，移除 POLYGON_RPC_URL 相关说明
+
+---
+
 # v1.1.0
 
 ## 🚀 主要功能
@@ -61,8 +93,8 @@
 
 ## 🔗 相关链接
 
-- **GitHub Release**: https://github.com/WrBug/PolyHermes/releases/tag/v1.1.0
-- **完整更新日志**: https://github.com/WrBug/PolyHermes/compare/v1.0.3...v1.1.0
+- **GitHub Release**: https://github.com/WrBug/PolyHermes/releases/tag/v1.1.1
+- **完整更新日志**: https://github.com/WrBug/PolyHermes/compare/v1.1.0...v1.1.1
 - **Docker Hub**: https://hub.docker.com/r/wrbug/polyhermes
 
 ## ⚠️ 重要提醒
@@ -75,7 +107,7 @@
 
 ```bash
 # ✅ 正确：使用官方镜像
-docker pull wrbug/polyhermes:v1.1.0
+docker pull wrbug/polyhermes:v1.1.1
 
 # ❌ 错误：不要使用其他来源的镜像
 # 任何非官方来源的镜像都可能包含恶意代码，导致您的私钥和资产被盗

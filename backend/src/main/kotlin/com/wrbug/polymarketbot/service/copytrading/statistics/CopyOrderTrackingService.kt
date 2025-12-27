@@ -8,10 +8,13 @@ import com.wrbug.polymarketbot.repository.*
 import com.wrbug.polymarketbot.util.RetrofitFactory
 import com.wrbug.polymarketbot.util.*
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.slf4j.LoggerFactory
 import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.dao.DuplicateKeyException
 import java.sql.SQLException
+import java.util.concurrent.ConcurrentHashMap
 import com.wrbug.polymarketbot.service.copytrading.configs.CopyTradingFilterService
 import com.wrbug.polymarketbot.service.copytrading.configs.FilterStatus
 import com.wrbug.polymarketbot.service.copytrading.orders.OrderSigningService
@@ -53,10 +56,21 @@ open class CopyOrderTrackingService(
     // 协程作用域（用于异步发送通知）
     private val notificationScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     
+    // 使用 Mutex 保证线程安全（按交易ID锁定）
+    private val tradeMutexMap = ConcurrentHashMap<String, Mutex>()
+    
     // 订单创建重试配置
     companion object {
         private const val MAX_RETRY_ATTEMPTS = 2  // 最多重试次数（首次 + 1次重试）
         private const val RETRY_DELAY_MS = 3000L  // 重试前等待时间（毫秒，3秒）
+    }
+    
+    /**
+     * 获取或创建 Mutex（按交易ID）
+     */
+    private fun getMutex(leaderId: Long, tradeId: String): Mutex {
+        val key = "${leaderId}_${tradeId}"
+        return tradeMutexMap.getOrPut(key) { Mutex() }
     }
 
     /**
@@ -102,24 +116,29 @@ open class CopyOrderTrackingService(
     /**
      * 处理交易事件（WebSocket 或轮询）
      * 根据交易方向调用相应的处理方法
+     * 使用 Mutex 保证线程安全（单实例部署）
      */
     @Transactional
     suspend fun processTrade(leaderId: Long, trade: TradeResponse, source: String): Result<Unit> {
-        return try {
+        // 获取该交易的 Mutex（按交易ID锁定，不同交易可以并行处理）
+        val mutex = getMutex(leaderId, trade.id)
+        
+        return mutex.withLock {
+            try {
             // 1. 检查是否已处理（去重，包括失败状态）
             val existingProcessed = processedTradeRepository.findByLeaderIdAndLeaderTradeId(leaderId, trade.id)
 
             if (existingProcessed != null) {
                 if (existingProcessed.status == "FAILED") {
-                    return Result.success(Unit)
+                        return@withLock Result.success(Unit)
                 }
-                return Result.success(Unit)
+                    return@withLock Result.success(Unit)
             }
 
             // 检查是否已记录为失败交易
             val failedTrade = failedTradeRepository.findByLeaderIdAndLeaderTradeId(leaderId, trade.id)
             if (failedTrade != null) {
-                return Result.success(Unit)
+                    return@withLock Result.success(Unit)
             }
 
             // 2. 处理交易逻辑
@@ -137,11 +156,11 @@ open class CopyOrderTrackingService(
                     "处理交易失败: leaderId=$leaderId, tradeId=${trade.id}, side=${trade.side}",
                     result.exceptionOrNull()
                 )
-                return result
+                    return@withLock result
             }
 
             // 3. 标记为已处理（成功状态）
-            // 注意：并发情况下可能多个请求同时处理同一笔交易，需要处理唯一约束冲突
+                // 由于使用了 Mutex，这里理论上不会出现并发冲突，但保留异常处理作为兜底
             try {
                 val processed = ProcessedTrade(
                     leaderId = leaderId,
@@ -153,18 +172,16 @@ open class CopyOrderTrackingService(
                 )
                 processedTradeRepository.save(processed)
             } catch (e: Exception) {
-                // 检查是否是唯一键冲突异常（可能是 DataIntegrityViolationException、DuplicateKeyException 或 SQLException）
+                    // 检查是否是唯一键冲突异常（理论上不会发生，但保留作为兜底）
                 if (isUniqueConstraintViolation(e)) {
-                    // 唯一约束冲突，说明已经处理过了（可能是并发请求）
-                    // 再次检查确认状态
                     val existing = processedTradeRepository.findByLeaderIdAndLeaderTradeId(leaderId, trade.id)
                     if (existing != null) {
                         if (existing.status == "FAILED") {
                             logger.debug("交易已标记为失败，跳过处理: leaderId=$leaderId, tradeId=${trade.id}")
-                            return Result.success(Unit)
+                                return@withLock Result.success(Unit)
                         }
                         logger.debug("交易已处理（并发检测）: leaderId=$leaderId, tradeId=${trade.id}, status=${existing.status}")
-                        return Result.success(Unit)
+                            return@withLock Result.success(Unit)
                     } else {
                         // 如果检查不到，可能是事务隔离级别问题，等待一下再查询
                         delay(100)
@@ -172,15 +189,13 @@ open class CopyOrderTrackingService(
                             processedTradeRepository.findByLeaderIdAndLeaderTradeId(leaderId, trade.id)
                         if (existingAfterDelay != null) {
                             logger.debug("延迟查询到记录（并发检测）: leaderId=$leaderId, tradeId=${trade.id}, status=${existingAfterDelay.status}")
-                            return Result.success(Unit)
+                                return@withLock Result.success(Unit)
                         }
-                        // 如果还是查询不到，记录警告但不抛出异常（可能是其他约束冲突）
                         logger.warn(
                             "保存ProcessedTrade时发生唯一约束冲突，但查询不到记录: leaderId=$leaderId, tradeId=${trade.id}",
                             e
                         )
-                        // 不抛出异常，避免影响其他交易的处理
-                        return Result.success(Unit)
+                            return@withLock Result.success(Unit)
                     }
                 } else {
                     // 其他类型的异常，重新抛出
@@ -192,6 +207,7 @@ open class CopyOrderTrackingService(
         } catch (e: Exception) {
             logger.error("处理交易异常: leaderId=$leaderId, tradeId=${trade.id}", e)
             Result.failure(e)
+            }
         }
     }
 
@@ -551,8 +567,15 @@ open class CopyOrderTrackingService(
                     }
 
                     val realOrderId = createOrderResult.getOrNull() ?: continue
+                    
+                    // 验证 orderId 格式（必须以 0x 开头的 16 进制）
+                    if (!isValidOrderId(realOrderId)) {
+                        logger.warn("买入订单ID格式无效，跳过保存: orderId=$realOrderId")
+                        continue
+                    }
 
                     // 创建买入订单跟踪记录（使用真实订单ID，使用outcomeIndex）
+                    // 先使用下单时的价格和数量作为临时值，等待轮询任务获取实际数据后再发送通知
                     val tracking = CopyOrderTracking(
                         copyTradingId = copyTrading.id,
                         accountId = copyTrading.accountId,
@@ -562,94 +585,17 @@ open class CopyOrderTrackingService(
                         outcomeIndex = trade.outcomeIndex,  // 新增字段
                         buyOrderId = realOrderId,  // 使用真实订单ID
                         leaderBuyTradeId = trade.id,
-                        quantity = finalBuyQuantity,  // 使用最终数量（可能已调整）
-                        price = buyPrice,
+                        leaderBuyQuantity = trade.size.toSafeBigDecimal(),  // 存储 Leader 买入数量（用于固定金额模式计算卖出比例）
+                        quantity = finalBuyQuantity,  // 使用最终数量（可能已调整），临时值
+                        price = buyPrice,  // 使用下单价格，临时值
                         remainingQuantity = finalBuyQuantity,
-                        status = "filled"
+                        status = "filled",
+                        notificationSent = false  // 标记为未发送通知，等待轮询任务获取实际数据后发送
                     )
 
                     copyOrderTrackingRepository.save(tracking)
 
-                    // 发送订单成功通知（异步，不阻塞）
-                    notificationScope.launch {
-                        try {
-                            // 获取市场信息（标题和slug）
-                            val marketInfo = withContext(Dispatchers.IO) {
-                                try {
-                                    val gammaApi = retrofitFactory.createGammaApi()
-                                    val marketResponse = gammaApi.listMarkets(conditionIds = listOf(trade.market))
-                                    if (marketResponse.isSuccessful && marketResponse.body() != null) {
-                                        marketResponse.body()!!.firstOrNull()
-                                    } else {
-                                        null
-                                    }
-                                } catch (e: Exception) {
-                                    logger.warn("获取市场信息失败: ${e.message}", e)
-                                    null
-                                }
-                            }
-
-                            val marketTitle = marketInfo?.question ?: trade.market
-                            val marketSlug = marketInfo?.slug
-
-                            // 重新创建 CLOB API 客户端用于查询订单详情
-                            val apiSecret = try {
-                                decryptApiSecret(account)
-                            } catch (e: Exception) {
-                                logger.warn("解密 API Secret 失败: ${e.message}", e)
-                                null
-                            }
-                            val apiPassphrase = try {
-                                decryptApiPassphrase(account)
-                            } catch (e: Exception) {
-                                logger.warn("解密 API Passphrase 失败: ${e.message}", e)
-                                null
-                            }
-
-                            val clobApiForQuery = if (apiSecret != null && apiPassphrase != null) {
-                                retrofitFactory.createClobApi(
-                                    account.apiKey,
-                                    apiSecret,
-                                    apiPassphrase,
-                                    account.walletAddress
-                                )
-                            } else {
-                                null
-                            }
-
-                            // 获取当前语言设置（从 LocaleContextHolder）
-                            val locale = try {
-                                org.springframework.context.i18n.LocaleContextHolder.getLocale()
-                            } catch (e: Exception) {
-                                java.util.Locale("zh", "CN")  // 默认简体中文
-                            }
-
-                            // 获取 Leader 和跟单配置信息
-                            val leader = leaderRepository.findById(copyTrading.leaderId).orElse(null)
-                            val leaderName = leader?.leaderName
-                            val configName = copyTrading.configName
-
-                            telegramNotificationService?.sendOrderSuccessNotification(
-                                orderId = realOrderId,
-                                marketTitle = marketTitle,
-                                marketId = trade.market,
-                                marketSlug = marketSlug,
-                                side = "BUY",
-                                accountName = account.accountName,
-                                walletAddress = account.walletAddress,
-                                clobApi = clobApiForQuery,
-                                apiKey = account.apiKey,
-                                apiSecret = apiSecret,
-                                apiPassphrase = apiPassphrase,
-                                walletAddressForApi = account.walletAddress,
-                                locale = locale,
-                                leaderName = leaderName,
-                                configName = configName
-                            )
-                        } catch (e: Exception) {
-                            logger.warn("发送订单成功通知失败: ${e.message}", e)
-                        }
-                    }
+                    logger.info("买入订单已保存，等待轮询任务获取实际数据后发送通知: orderId=$realOrderId, copyTradingId=${copyTrading.id}")
                 } catch (e: Exception) {
                     logger.error("处理买入交易失败: copyTradingId=${copyTrading.id}, tradeId=${trade.id}", e)
                     // 继续处理下一个跟单关系
@@ -724,8 +670,112 @@ open class CopyOrderTrackingService(
     }
 
     /**
+     * 计算固定金额模式下的卖出数量
+     * 根据未匹配订单的实际买入比例计算
+     */
+    private suspend fun calculateSellQuantityForFixedMode(
+        unmatchedOrders: List<CopyOrderTracking>,
+        leaderSellQuantity: BigDecimal,
+        copyTrading: CopyTrading
+    ): BigDecimal {
+        if (unmatchedOrders.isEmpty()) {
+            return BigDecimal.ZERO
+        }
+
+        // 获取 Leader 信息（用于查询 Leader 买入交易）
+        val leader = leaderRepository.findById(copyTrading.leaderId).orElse(null)
+            ?: run {
+                logger.warn("Leader 不存在，使用默认比例: leaderId=${copyTrading.leaderId}")
+                return leaderSellQuantity.multi(copyTrading.copyRatio)
+            }
+
+        // 创建不需要认证的 CLOB API 客户端（用于查询公开的交易数据）
+        // 注意：Polymarket CLOB API 的 /data/trades 接口是公开的，不需要认证
+        val clobApi = retrofitFactory.createClobApiWithoutAuth()
+
+        // 计算总比例：sum(跟单买入数量) / sum(Leader 买入数量)
+        // 优先使用存储的 leaderBuyQuantity，如果不存在则尝试查询 API（兼容旧数据）
+        var totalCopyQuantity = BigDecimal.ZERO
+        var totalLeaderQuantity = BigDecimal.ZERO
+        var successCount = 0
+        var failCount = 0
+
+        logger.debug("开始计算固定金额模式卖出数量: copyTradingId=${copyTrading.id}, unmatchedOrdersCount=${unmatchedOrders.size}, leaderSellQuantity=$leaderSellQuantity")
+
+        for (order in unmatchedOrders) {
+            val copyQty = order.quantity.toSafeBigDecimal()
+            var leaderQty: BigDecimal? = null
+            
+            // 优先使用存储的 leaderBuyQuantity
+            if (order.leaderBuyQuantity != null) {
+                leaderQty = order.leaderBuyQuantity.toSafeBigDecimal()
+                logger.debug("使用存储的 Leader 买入数量: copyOrderId=${order.buyOrderId}, copyQty=$copyQty, leaderQty=$leaderQty")
+                successCount++
+            } else {
+                // 兼容旧数据：如果 leaderBuyQuantity 为空，尝试查询 API
+                logger.debug("Leader 买入数量未存储，尝试查询 API: leaderBuyTradeId=${order.leaderBuyTradeId}, copyOrderId=${order.buyOrderId}")
+                try {
+                    val tradesResponse = clobApi.getTrades(id = order.leaderBuyTradeId)
+                    
+                    if (tradesResponse.isSuccessful && tradesResponse.body() != null) {
+                        val tradesData = tradesResponse.body()!!.data
+                        if (tradesData.isNotEmpty()) {
+                            val leaderBuyTrade = tradesData.firstOrNull()
+                            if (leaderBuyTrade != null) {
+                                leaderQty = leaderBuyTrade.size.toSafeBigDecimal()
+                                logger.debug("从 API 查询到 Leader 买入数量: leaderBuyTradeId=${order.leaderBuyTradeId}, leaderQty=$leaderQty")
+                                successCount++
+                            } else {
+                                logger.warn("未找到 Leader 买入交易: leaderBuyTradeId=${order.leaderBuyTradeId}")
+                                failCount++
+                            }
+                        } else {
+                            logger.warn("Leader 买入交易数据为空: leaderBuyTradeId=${order.leaderBuyTradeId}")
+                            failCount++
+                        }
+                    } else {
+                        logger.warn("查询 Leader 买入交易失败: leaderBuyTradeId=${order.leaderBuyTradeId}, code=${tradesResponse.code()}")
+                        failCount++
+                    }
+                } catch (e: Exception) {
+                    logger.warn("查询 Leader 买入交易异常: leaderBuyTradeId=${order.leaderBuyTradeId}, error=${e.message}")
+                    failCount++
+                }
+            }
+            
+            // 如果成功获取到 Leader 买入数量，累加
+            if (leaderQty != null && leaderQty.gt(BigDecimal.ZERO)) {
+                totalCopyQuantity = totalCopyQuantity.add(copyQty)
+                totalLeaderQuantity = totalLeaderQuantity.add(leaderQty)
+            } else {
+                logger.warn("无法获取 Leader 买入数量，跳过该订单: copyOrderId=${order.buyOrderId}, leaderBuyTradeId=${order.leaderBuyTradeId}")
+            }
+        }
+        
+        logger.info("固定金额模式计算结果汇总: copyTradingId=${copyTrading.id}, successCount=$successCount, failCount=$failCount, totalCopyQuantity=$totalCopyQuantity, totalLeaderQuantity=$totalLeaderQuantity")
+
+        // 如果无法计算总比例（查询失败），使用默认比例
+        if (totalLeaderQuantity.lte(BigDecimal.ZERO)) {
+            logger.warn("无法计算总比例（Leader 买入数量为 0），使用默认比例: copyTradingId=${copyTrading.id}")
+            return leaderSellQuantity.multi(copyTrading.copyRatio)
+        }
+
+        // 计算实际比例：跟单买入数量 / Leader 买入数量
+        val actualRatio = totalCopyQuantity.div(totalLeaderQuantity)
+        
+        // 计算需要卖出的数量：Leader 卖出数量 × 实际比例
+        val needMatch = leaderSellQuantity.multi(actualRatio)
+        
+        logger.debug("固定金额模式卖出数量计算: copyTradingId=${copyTrading.id}, leaderSellQuantity=$leaderSellQuantity, totalCopyQuantity=$totalCopyQuantity, totalLeaderQuantity=$totalLeaderQuantity, actualRatio=$actualRatio, needMatch=$needMatch")
+        
+        return needMatch
+    }
+
+    /**
      * 卖出订单匹配
-     * 统一按比例计算，不区分RATIO或FIXED模式
+     * 根据 copyMode 计算卖出数量：
+     * - RATIO 模式：使用配置的 copyRatio
+     * - FIXED 模式：根据实际买入比例计算
      * 实际创建卖出订单并记录匹配关系
      * 注意：此方法在 @Transactional 方法中被调用，会自动继承事务
      */
@@ -751,10 +801,7 @@ open class CopyOrderTrackingService(
             return
         }
 
-        // 2. 计算需要匹配的数量（统一按比例计算）
-        val needMatch = leaderSellTrade.size.toSafeBigDecimal().multi(copyTrading.copyRatio)
-
-        // 3. 查找未匹配的买入订单（FIFO顺序）
+        // 2. 查找未匹配的买入订单（FIFO顺序）
         // 直接使用outcomeIndex匹配，而不是转换为YES/NO
         if (leaderSellTrade.outcomeIndex == null) {
             logger.warn("卖出交易缺少outcomeIndex，无法匹配: tradeId=${leaderSellTrade.id}, market=${leaderSellTrade.market}")
@@ -770,6 +817,28 @@ open class CopyOrderTrackingService(
 
         if (unmatchedOrders.isEmpty()) {
             return
+        }
+
+        // 3. 计算需要匹配的数量
+        // 对于 FIXED 模式，需要根据实际买入比例计算；对于 RATIO 模式，使用配置的 copyRatio
+        val needMatch = when (copyTrading.copyMode) {
+            "FIXED" -> {
+                // 固定金额模式：根据未匹配订单的实际比例计算
+                // 需要查询每个订单对应的 Leader 买入交易，计算实际比例
+                calculateSellQuantityForFixedMode(
+                    unmatchedOrders = unmatchedOrders,
+                    leaderSellQuantity = leaderSellTrade.size.toSafeBigDecimal(),
+                    copyTrading = copyTrading
+                )
+            }
+            "RATIO" -> {
+                // 比例模式：直接使用配置的 copyRatio
+                leaderSellTrade.size.toSafeBigDecimal().multi(copyTrading.copyRatio)
+            }
+            else -> {
+                logger.warn("不支持的 copyMode: ${copyTrading.copyMode}，使用默认比例模式")
+                leaderSellTrade.size.toSafeBigDecimal().multi(copyTrading.copyRatio)
+            }
         }
 
         // 4. 获取tokenId（直接使用outcomeIndex，支持多元市场）
@@ -832,9 +901,24 @@ open class CopyOrderTrackingService(
             return
         }
 
-        // 7. 解密私钥（在方法开始时解密一次，后续复用）
+        // 7. 解密 API 凭证
+        val apiSecret = try {
+            decryptApiSecret(account)
+        } catch (e: Exception) {
+            logger.warn("解密 API 凭证失败，跳过创建卖出订单: accountId=${account.id}, error=${e.message}")
+            return
+        }
+        val apiPassphrase = try {
+            decryptApiPassphrase(account)
+        } catch (e: Exception) {
+            logger.warn("解密 API 凭证失败，跳过创建卖出订单: accountId=${account.id}, error=${e.message}")
+            return
+        }
+
+        // 8. 解密私钥（在方法开始时解密一次，后续复用）
         val decryptedPrivateKey = decryptPrivateKey(account)
-        // 8. 创建并签名卖出订单
+        
+        // 9. 创建并签名卖出订单
         val signedOrder = try {
             orderSigningService.createAndSignOrder(
                 privateKey = decryptedPrivateKey,
@@ -853,7 +937,7 @@ open class CopyOrderTrackingService(
             return
         }
 
-        // 9. 构建订单请求
+        // 10. 构建订单请求
         // 跟单订单使用 FAK (Fill-And-Kill)，允许部分成交，未成交部分立即取消
         // 这样可以快速响应 Leader 的交易，避免订单长期挂单导致价格不匹配
         val orderRequest = NewOrderRequest(
@@ -863,15 +947,15 @@ open class CopyOrderTrackingService(
             deferExec = false
         )
 
-        // 10. 创建带认证的CLOB API客户端
+        // 11. 创建带认证的CLOB API客户端（使用解密后的凭证）
         val clobApi = retrofitFactory.createClobApi(
             account.apiKey,
-            account.apiSecret,
-            account.apiPassphrase,
+            apiSecret,
+            apiPassphrase,
             account.walletAddress
         )
 
-        // 11. 调用API创建卖出订单（带重试机制，重试时会重新生成salt并重新签名）
+        // 12. 调用API创建卖出订单（带重试机制，重试时会重新生成salt并重新签名）
 
         val createOrderResult = createOrderWithRetry(
             clobApi = clobApi,
@@ -912,7 +996,19 @@ open class CopyOrderTrackingService(
 
         val realSellOrderId = createOrderResult.getOrNull() ?: return
 
-        // 12. 更新买入订单跟踪状态
+        // 12. 下单时直接使用下单价格保存，等待定时任务更新实际成交价
+        // priceUpdated 统一由定时任务更新，下单时统一设置为 false（非0x开头的除外）
+        val priceUpdated = !realSellOrderId.startsWith("0x", ignoreCase = true)
+        if (priceUpdated) {
+            logger.debug("卖出订单ID非0x开头，标记为已更新: orderId=$realSellOrderId")
+        } else {
+            logger.debug("卖出订单ID为0x开头，等待定时任务更新价格: orderId=$realSellOrderId")
+        }
+        
+        // 使用下单价格，等待定时任务更新实际成交价
+        val actualSellPrice = sellPrice
+
+        // 13. 更新买入订单跟踪状态
         for (order in unmatchedOrders) {
             val detail = matchDetails.find { it.trackingId == order.id }
             if (detail != null) {
@@ -925,8 +1021,17 @@ open class CopyOrderTrackingService(
             }
         }
 
-        // 13. 创建卖出匹配记录（使用真实订单ID，使用outcomeIndex）
-        val totalRealizedPnl = matchDetails.sumOf { it.realizedPnl.toSafeBigDecimal() }
+        // 14. 重新计算盈亏（使用实际成交价）
+        val updatedMatchDetails = matchDetails.map { detail ->
+            val updatedRealizedPnl = actualSellPrice.subtract(detail.buyPrice).multi(detail.matchedQuantity)
+            detail.copy(
+                sellPrice = actualSellPrice,
+                realizedPnl = updatedRealizedPnl
+            )
+        }
+
+        // 15. 创建卖出匹配记录（使用真实订单ID和实际成交价）
+        val totalRealizedPnl = updatedMatchDetails.sumOf { it.realizedPnl.toSafeBigDecimal() }
 
         val matchRecord = SellMatchRecord(
             copyTradingId = copyTrading.id,
@@ -936,17 +1041,20 @@ open class CopyOrderTrackingService(
             side = leaderSellTrade.outcomeIndex.toString(),  // 使用outcomeIndex作为side（兼容旧数据）
             outcomeIndex = leaderSellTrade.outcomeIndex,  // 新增字段
             totalMatchedQuantity = totalMatched,
-            sellPrice = sellPrice,
-            totalRealizedPnl = totalRealizedPnl
+            sellPrice = actualSellPrice,  // 使用实际成交价（如果查询失败则为下单价格）
+            totalRealizedPnl = totalRealizedPnl,
+            priceUpdated = priceUpdated  // 共用字段：false 表示未处理（未查询订单详情，未发送通知），true 表示已处理（已查询订单详情，已发送通知）
         )
 
         val savedRecord = sellMatchRecordRepository.save(matchRecord)
 
-        // 14. 保存匹配明细
-        for (detail in matchDetails) {
+        // 16. 保存匹配明细（使用实际成交价）
+        for (detail in updatedMatchDetails) {
             val savedDetail = detail.copy(matchRecordId = savedRecord.id!!)
             sellMatchDetailRepository.save(savedDetail)
         }
+        
+        logger.info("卖出订单已保存，等待轮询任务获取实际数据后发送通知: orderId=$realSellOrderId, copyTradingId=${copyTrading.id}")
 
     }
 
@@ -1348,6 +1456,111 @@ open class CopyOrderTrackingService(
             FilterStatus.FAILED_ORDER_DEPTH -> "ORDER_DEPTH"
             FilterStatus.FAILED_MAX_POSITION_VALUE -> "MAX_POSITION_VALUE"
             FilterStatus.FAILED_MAX_POSITION_COUNT -> "MAX_POSITION_COUNT"
+        }
+    }
+
+    /**
+     * 验证订单ID格式
+     * 订单ID必须以 0x 开头，且是有效的 16 进制字符串
+     * 
+     * @param orderId 订单ID
+     * @return 如果格式有效返回 true，否则返回 false
+     */
+    private fun isValidOrderId(orderId: String): Boolean {
+        if (!orderId.startsWith("0x", ignoreCase = true)) {
+            return false
+        }
+        // 验证是否为有效的 16 进制字符串（去除 0x 前缀后）
+        val hexPart = orderId.substring(2)
+        if (hexPart.isEmpty()) {
+            return false
+        }
+        // 检查是否只包含 0-9, a-f, A-F
+        return hexPart.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }
+    }
+    
+    /**
+     * 获取订单的实际成交价
+     * 通过查询订单详情和关联的交易记录，计算加权平均成交价
+     * 
+     * @param orderId 订单ID
+     * @param clobApi CLOB API 客户端（已认证）
+     * @param fallbackPrice 如果查询失败，使用此价格作为默认值
+     * @return 实际成交价（加权平均），如果查询失败则返回 fallbackPrice
+     */
+    suspend fun getActualExecutionPrice(
+        orderId: String,
+        clobApi: PolymarketClobApi,
+        fallbackPrice: BigDecimal
+    ): BigDecimal {
+        return try {
+            // 1. 查询订单详情
+            val orderResponse = clobApi.getOrder(orderId)
+            if (!orderResponse.isSuccessful || orderResponse.body() == null) {
+                logger.warn("查询订单详情失败: orderId=$orderId, code=${orderResponse.code()}")
+                return fallbackPrice
+            }
+
+            val order = orderResponse.body()!!
+            
+            // 2. 如果订单未成交，使用下单价格
+            if (order.status != "FILLED" && order.sizeMatched.toSafeBigDecimal() <= BigDecimal.ZERO) {
+                logger.debug("订单未成交，使用下单价格: orderId=$orderId, status=${order.status}")
+                return fallbackPrice
+            }
+
+            // 3. 如果订单已成交，通过 associateTrades 获取交易记录
+            val associateTrades = order.associateTrades
+            if (associateTrades.isNullOrEmpty()) {
+                logger.debug("订单无关联交易记录，使用下单价格: orderId=$orderId")
+                return fallbackPrice
+            }
+
+            // 4. 查询所有关联的交易记录
+            val trades = mutableListOf<TradeResponse>()
+            for (tradeId in associateTrades) {
+                try {
+                    val tradesResponse = clobApi.getTrades(id = tradeId)
+                    if (tradesResponse.isSuccessful && tradesResponse.body() != null) {
+                        val tradesData = tradesResponse.body()!!.data
+                        trades.addAll(tradesData)
+                    }
+                } catch (e: Exception) {
+                    logger.warn("查询交易记录失败: tradeId=$tradeId, error=${e.message}")
+                }
+            }
+
+            if (trades.isEmpty()) {
+                logger.debug("未找到交易记录，使用下单价格: orderId=$orderId")
+                return fallbackPrice
+            }
+
+            // 5. 计算加权平均成交价
+            // 加权平均 = Σ(price * size) / Σ(size)
+            var totalAmount = BigDecimal.ZERO
+            var totalSize = BigDecimal.ZERO
+
+            for (trade in trades) {
+                val tradePrice = trade.price.toSafeBigDecimal()
+                val tradeSize = trade.size.toSafeBigDecimal()
+                
+                if (tradeSize > BigDecimal.ZERO) {
+                    totalAmount = totalAmount.add(tradePrice.multiply(tradeSize))
+                    totalSize = totalSize.add(tradeSize)
+                }
+            }
+
+            if (totalSize > BigDecimal.ZERO) {
+                val weightedAveragePrice = totalAmount.divide(totalSize, 8, java.math.RoundingMode.HALF_UP)
+                logger.info("计算实际成交价成功: orderId=$orderId, 加权平均价=$weightedAveragePrice, 下单价格=$fallbackPrice, 交易笔数=${trades.size}")
+                return weightedAveragePrice
+            } else {
+                logger.warn("交易记录数量为0，使用下单价格: orderId=$orderId")
+                return fallbackPrice
+            }
+        } catch (e: Exception) {
+            logger.error("获取实际成交价异常: orderId=$orderId, error=${e.message}", e)
+            return fallbackPrice
         }
     }
 

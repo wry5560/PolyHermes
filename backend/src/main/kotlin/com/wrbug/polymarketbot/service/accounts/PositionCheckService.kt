@@ -23,8 +23,10 @@ import com.wrbug.polymarketbot.service.system.RelayClientService
 import com.wrbug.polymarketbot.service.system.TelegramNotificationService
 import com.wrbug.polymarketbot.util.RetrofitFactory
 import com.wrbug.polymarketbot.util.JsonUtils
+import com.wrbug.polymarketbot.service.common.BlockchainService
 import org.springframework.stereotype.Service
 import java.math.BigDecimal
+import java.math.BigInteger
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -45,7 +47,8 @@ class PositionCheckService(
     private val telegramNotificationService: TelegramNotificationService?,
     private val accountRepository: AccountRepository,
     private val messageSource: MessageSource,
-    private val retrofitFactory: RetrofitFactory
+    private val retrofitFactory: RetrofitFactory,
+    private val blockchainService: BlockchainService
 ) {
     
     private val logger = LoggerFactory.getLogger(PositionCheckService::class.java)
@@ -427,14 +430,45 @@ class PositionCheckService(
     
     /**
      * 获取当前市场最新价（用于更新订单卖出价）
-     * 优先使用 bestBid（最优买价），如果没有则使用 midpoint（中间价）
+     * 优先使用链上查询获取市场结算结果，如果未结算则使用 API 查询
      * 如果市场已关闭：
      *   - 该 outcome 赢了，返回 1
      *   - 该 outcome 输了，返回 0
      */
     private suspend fun getCurrentMarketPrice(marketId: String, outcomeIndex: Int): BigDecimal {
         return try {
-            // 先获取市场信息，检查市场是否已关闭
+            // 优先从链上查询市场结算结果（实时性高）
+            val chainResult = blockchainService.getCondition(marketId)
+            chainResult.fold(
+                onSuccess = { (payoutDenominator, payouts) ->
+                    // 如果 payouts 不为空，说明市场已结算
+                    if (payouts.isNotEmpty() && outcomeIndex < payouts.size) {
+                        val payout = payouts[outcomeIndex]
+                        when {
+                            payout > BigInteger.ZERO -> {
+                                // payout > 0 表示赢了
+                                logger.info("从链上查询到市场已结算，该 outcome 赢了: marketId=$marketId, outcomeIndex=$outcomeIndex, payout=$payout")
+                                return BigDecimal.ONE
+                            }
+                            payout == BigInteger.ZERO -> {
+                                // payout == 0 表示输了
+                                logger.info("从链上查询到市场已结算，该 outcome 输了: marketId=$marketId, outcomeIndex=$outcomeIndex, payout=$payout")
+                                return BigDecimal.ZERO
+                            }
+                            else -> {
+                                logger.warn("从链上查询到异常的 payout 值: marketId=$marketId, outcomeIndex=$outcomeIndex, payout=$payout")
+                            }
+                        }
+                    } else {
+                        logger.debug("从链上查询到市场尚未结算: marketId=$marketId, payouts=${payouts.size}")
+                    }
+                },
+                onFailure = { e ->
+                    logger.debug("链上查询市场条件失败，降级到 API 查询: marketId=$marketId, error=${e.message}")
+                }
+            )
+            
+            // 链上查询失败或市场未结算，降级到 API 查询
             val gammaApi = retrofitFactory.createGammaApi()
             val marketResponse = gammaApi.listMarkets(conditionIds = listOf(marketId))
             
@@ -442,20 +476,27 @@ class PositionCheckService(
                 val markets = marketResponse.body()!!
                 val market = markets.firstOrNull()
                 
-                if (market != null && market.closed == true) {
-                    // 市场已关闭，检查该 outcome 是赢了还是输了
+                if (market != null) {
+                    // 检查市场是否已结束：1) closed == true 或 2) endDate 已过
+                    val isMarketEnded = checkIfMarketEnded(market)
+                    
+                    if (isMarketEnded) {
+                        logger.debug("市场已结束: marketId=$marketId, closed=${market.closed}, endDate=${market.endDate}")
+                        // 市场已结束，检查该 outcome 是赢了还是输了
                     val outcomeResult = checkOutcomeResult(market, outcomeIndex)
                     when (outcomeResult) {
                         OutcomeResult.WON -> {
-                            logger.info("市场已关闭且该 outcome 赢了，返回价格为 1: marketId=$marketId, outcomeIndex=$outcomeIndex")
+                                logger.info("市场已结束且该 outcome 赢了，返回价格为 1: marketId=$marketId, outcomeIndex=$outcomeIndex")
                             return BigDecimal.ONE
                         }
                         OutcomeResult.LOST -> {
-                            logger.info("市场已关闭且该 outcome 输了，返回价格为 0: marketId=$marketId, outcomeIndex=$outcomeIndex")
+                                logger.info("市场已结束且该 outcome 输了，返回价格为 0: marketId=$marketId, outcomeIndex=$outcomeIndex")
                             return BigDecimal.ZERO
                         }
                         OutcomeResult.UNKNOWN -> {
-                            // 无法判断，继续使用正常价格逻辑
+                                // 无法判断，记录警告并继续使用正常价格逻辑
+                                logger.warn("市场已结束但无法判断 outcome 结果，使用正常价格: marketId=$marketId, outcomeIndex=$outcomeIndex, closed=${market.closed}, endDate=${market.endDate}, outcomePrices=${market.outcomePrices}, bestBid=${market.bestBid}, bestAsk=${market.bestAsk}")
+                            }
                         }
                     }
                 }
@@ -475,6 +516,50 @@ class PositionCheckService(
             logger.error("获取市场最新价失败: marketId=$marketId, outcomeIndex=$outcomeIndex, error=${e.message}", e)
             BigDecimal.ZERO
         }
+    }
+    
+    /**
+     * 检查市场是否已结束
+     * 判断条件：
+     * 1. closed == true
+     * 2. 或 endDate 已过（如果 endDate 不为空）
+     */
+    private fun checkIfMarketEnded(market: com.wrbug.polymarketbot.api.MarketResponse): Boolean {
+        // 1. 检查 closed 字段
+        if (market.closed == true) {
+            return true
+        }
+        
+        // 2. 检查 endDate 是否已过
+        val endDateStr = market.endDate
+        if (endDateStr != null && endDateStr.isNotBlank()) {
+            try {
+                // endDate 可能是 ISO 8601 格式字符串或时间戳
+                val endDate = if (endDateStr.matches(Regex("^\\d+$"))) {
+                    // 时间戳（秒或毫秒）
+                    val timestamp = endDateStr.toLong()
+                    // 判断是秒还是毫秒（如果小于 10^10，认为是秒）
+                    if (timestamp < 10000000000L) {
+                        timestamp * 1000  // 转换为毫秒
+                    } else {
+                        timestamp
+                    }
+                } else {
+                    // ISO 8601 格式，尝试解析
+                    java.time.Instant.parse(endDateStr).toEpochMilli()
+                }
+                
+                val now = System.currentTimeMillis()
+                if (now >= endDate) {
+                    logger.debug("市场 endDate 已过: marketId=${market.conditionId}, endDate=$endDateStr, now=$now")
+                    return true
+                }
+            } catch (e: Exception) {
+                logger.warn("解析 endDate 失败: marketId=${market.conditionId}, endDate=$endDateStr, error=${e.message}")
+            }
+        }
+        
+        return false
     }
     
     /**
@@ -628,7 +713,8 @@ class PositionCheckService(
                     outcomeIndex = outcomeIndex,
                     totalMatchedQuantity = totalMatchedQuantity,
                     sellPrice = sellPrice,
-                    totalRealizedPnl = totalRealizedPnl
+                    totalRealizedPnl = totalRealizedPnl,
+                    priceUpdated = true  // 自动生成的订单，直接标记为已处理，不发送通知
                 )
                 
                 val savedRecord = sellMatchRecordRepository.save(matchRecord)
@@ -742,7 +828,8 @@ class PositionCheckService(
                     outcomeIndex = outcomeIndex,
                     totalMatchedQuantity = totalMatchedQuantity,
                     sellPrice = sellPrice,
-                    totalRealizedPnl = totalRealizedPnl
+                    totalRealizedPnl = totalRealizedPnl,
+                    priceUpdated = true  // 自动生成的订单，直接标记为已处理，不发送通知
                 )
                 
                 val savedRecord = sellMatchRecordRepository.save(matchRecord)

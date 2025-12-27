@@ -12,7 +12,7 @@ const AccountImport: React.FC = () => {
   const navigate = useNavigate()
   const [form] = Form.useForm()
   
-  const handleSuccess = async (accountId?: number) => {
+  const handleSuccess = async () => {
     message.success(t('accountImport.importSuccess'))
     navigate('/accounts')
   }

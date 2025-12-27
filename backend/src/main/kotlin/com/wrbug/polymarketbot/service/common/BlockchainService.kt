@@ -12,6 +12,7 @@ import com.wrbug.polymarketbot.util.createClient
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import com.wrbug.polymarketbot.service.system.RelayClientService
+import com.wrbug.polymarketbot.service.system.RpcNodeService
 import org.springframework.stereotype.Service
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
@@ -26,10 +27,9 @@ import java.math.BigInteger
 class BlockchainService(
     @Value("\${polymarket.data-api.base-url:https://data-api.polymarket.com}")
     private val dataApiBaseUrl: String,
-    @Value("\${polygon.rpc.url:}")
-    private val polygonRpcUrl: String,
     private val retrofitFactory: RetrofitFactory,
-    private val relayClientService: RelayClientService
+    private val relayClientService: RelayClientService,
+    private val rpcNodeService: RpcNodeService
 ) {
     
     private val logger = LoggerFactory.getLogger(BlockchainService::class.java)
@@ -69,12 +69,9 @@ class BlockchainService(
             .create(PolymarketDataApi::class.java)
     }
     
-    private val polygonRpcApi: EthereumRpcApi? by lazy {
-        if (polygonRpcUrl.isBlank()) {
-            null
-        } else {
-            retrofitFactory.createEthereumRpcApi(polygonRpcUrl)
-        }
+    private val polygonRpcApi: EthereumRpcApi by lazy {
+        val rpcUrl = rpcNodeService.getHttpUrl()
+        retrofitFactory.createEthereumRpcApi(rpcUrl)
     }
     
     /**
@@ -85,13 +82,7 @@ class BlockchainService(
      */
     suspend fun getProxyAddress(walletAddress: String): Result<String> {
         return try {
-            // 如果未配置 RPC URL，返回错误
-            if (polygonRpcUrl.isBlank()) {
-                logger.warn("未配置 Polygon RPC URL，无法获取代理地址")
-                return Result.failure(IllegalStateException("未配置 Polygon RPC URL，无法获取代理地址。请在配置文件中设置 polygon.rpc.url 环境变量"))
-            }
-            
-            val rpcApi = polygonRpcApi ?: throw IllegalStateException("Polygon RPC URL 未配置")
+            val rpcApi = polygonRpcApi
             
             // 计算函数选择器
             val functionSelector = EthereumUtils.getFunctionSelector(computeProxyAddressFunctionSignature)
@@ -126,7 +117,9 @@ class BlockchainService(
                 throw Exception("RPC 错误: ${rpcResponse.error.message}")
             }
             
-            val hexResult = rpcResponse.result ?: throw Exception("RPC 响应格式错误: result 为空")
+            // 使用 Gson 解析 result（JsonElement）
+            val hexResult = rpcResponse.result?.asString 
+                ?: throw Exception("RPC 响应格式错误: result 为空")
             
             // 解析代理地址
             val proxyAddress = EthereumUtils.decodeAddress(hexResult)
@@ -147,12 +140,6 @@ class BlockchainService(
      */
     suspend fun getUsdcBalance(walletAddress: String, proxyAddress: String): Result<String> {
         return try {
-            // 如果未配置 RPC URL，返回错误
-            if (polygonRpcUrl.isBlank()) {
-                logger.warn("未配置 Polygon RPC URL，无法查询 USDC 余额")
-                return Result.failure(IllegalStateException("未配置 Polygon RPC URL，无法查询 USDC 余额。请在配置文件中设置 polygon.rpc.url 环境变量"))
-            }
-            
             // 检查代理地址是否为空
             if (proxyAddress.isBlank()) {
                 logger.error("代理地址为空，无法查询余额")
@@ -173,7 +160,7 @@ class BlockchainService(
      * 通过 RPC 查询 USDC 余额
      */
     private suspend fun queryUsdcBalanceViaRpc(walletAddress: String): String {
-        val rpcApi = polygonRpcApi ?: throw IllegalStateException("Polygon RPC URL 未配置")
+        val rpcApi = polygonRpcApi
         
         // 构建 ERC-20 balanceOf 函数调用
         // function signature: balanceOf(address) -> bytes4(0x70a08231)
@@ -208,7 +195,9 @@ class BlockchainService(
             throw Exception("RPC 错误: ${rpcResponse.error.message}")
         }
         
-        val hexBalance = rpcResponse.result ?: throw Exception("RPC 响应格式错误: result 为空")
+        // 使用 Gson 解析 result（JsonElement）
+        val hexBalance = rpcResponse.result?.asString 
+            ?: throw Exception("RPC 响应格式错误: result 为空")
         
         // 将十六进制转换为 BigDecimal（USDC 有 6 位小数）
         val balanceWei = BigInteger(hexBalance.removePrefix("0x"), 16)
@@ -264,13 +253,7 @@ class BlockchainService(
      */
     suspend fun getTokenId(conditionId: String, outcomeIndex: Int): Result<String> {
         return try {
-            // 如果未配置 RPC URL，返回错误
-            if (polygonRpcUrl.isBlank()) {
-                logger.warn("未配置 Polygon RPC URL，无法计算 tokenId")
-                return Result.failure(IllegalStateException("未配置 Polygon RPC URL，无法计算 tokenId"))
-            }
-            
-            val rpcApi = polygonRpcApi ?: throw IllegalStateException("Polygon RPC URL 未配置")
+            val rpcApi = polygonRpcApi
             
             // 验证 outcomeIndex
             if (outcomeIndex < 0) {
@@ -309,7 +292,9 @@ class BlockchainService(
                 return Result.failure(Exception("调用 getCollectionId 失败: ${collectionIdResult.error}"))
             }
             
-            val collectionId = collectionIdResult.result ?: return Result.failure(Exception("getCollectionId 返回结果为空"))
+            // 使用 Gson 解析 result（JsonElement）
+            val collectionId = collectionIdResult.result?.asString 
+                ?: return Result.failure(Exception("getCollectionId 返回结果为空"))
             
             // 2. 调用 getPositionId(collateralToken, collectionId)
             val getPositionIdSelector = EthereumUtils.getFunctionSelector("getPositionId(address,bytes32)")
@@ -339,7 +324,9 @@ class BlockchainService(
                 return Result.failure(Exception("调用 getPositionId 失败: ${positionIdResult.error}"))
             }
             
-            val tokenId = positionIdResult.result ?: return Result.failure(Exception("getPositionId 返回结果为空"))
+            // 使用 Gson 解析 result（JsonElement）
+            val tokenId = positionIdResult.result?.asString 
+                ?: return Result.failure(Exception("getPositionId 返回结果为空"))
             val tokenIdBigInt = EthereumUtils.decodeUint256(tokenId)
             
             Result.success(tokenIdBigInt.toString())
@@ -449,7 +436,7 @@ class BlockchainService(
      * 获取代理钱包的 nonce（用于构建 Safe 交易）
      */
     private suspend fun getProxyNonce(proxyAddress: String): Result<BigInteger> {
-        val rpcApi = polygonRpcApi ?: throw IllegalStateException("Polygon RPC URL 未配置")
+        val rpcApi = polygonRpcApi
         
         // Gnosis Safe 的 nonce 通过调用合约的 nonce() 函数获取
         val nonceFunctionSelector = EthereumUtils.getFunctionSelector("nonce()")
@@ -475,7 +462,9 @@ class BlockchainService(
             return Result.failure(Exception("获取 Proxy nonce 失败: ${rpcResponse.error.message}"))
         }
         
-        val hexNonce = rpcResponse.result ?: return Result.failure(Exception("Proxy nonce 结果为空"))
+        // 使用 Gson 解析 result（JsonElement）
+        val hexNonce = rpcResponse.result?.asString 
+            ?: return Result.failure(Exception("Proxy nonce 结果为空"))
         val nonce = EthereumUtils.decodeUint256(hexNonce)
         return Result.success(nonce)
     }
@@ -484,7 +473,7 @@ class BlockchainService(
      * 获取交易 nonce
      */
     private suspend fun getTransactionCount(address: String): Result<BigInteger> {
-        val rpcApi = polygonRpcApi ?: throw IllegalStateException("Polygon RPC URL 未配置")
+        val rpcApi = polygonRpcApi
         
         val rpcRequest = JsonRpcRequest(
             method = "eth_getTransactionCount",
@@ -503,7 +492,9 @@ class BlockchainService(
             return Result.failure(Exception("获取 nonce 失败: ${rpcResponse.error.message}"))
         }
         
-        val hexNonce = rpcResponse.result ?: return Result.failure(Exception("nonce 结果为空"))
+        // 使用 Gson 解析 result（JsonElement）
+        val hexNonce = rpcResponse.result?.asString 
+            ?: return Result.failure(Exception("nonce 结果为空"))
         val nonce = EthereumUtils.decodeUint256(hexNonce)
         return Result.success(nonce)
     }
@@ -512,7 +503,7 @@ class BlockchainService(
      * 获取 gas price
      */
     private suspend fun getGasPrice(): Result<BigInteger> {
-        val rpcApi = polygonRpcApi ?: throw IllegalStateException("Polygon RPC URL 未配置")
+        val rpcApi = polygonRpcApi
         
         val rpcRequest = JsonRpcRequest(
             method = "eth_gasPrice",
@@ -529,7 +520,9 @@ class BlockchainService(
             return Result.failure(Exception("获取 gas price 失败: ${rpcResponse.error.message}"))
         }
         
-        val hexGasPrice = rpcResponse.result ?: return Result.failure(Exception("gas price 结果为空"))
+        // 使用 Gson 解析 result（JsonElement）
+        val hexGasPrice = rpcResponse.result?.asString 
+            ?: return Result.failure(Exception("gas price 结果为空"))
         val gasPrice = EthereumUtils.decodeUint256(hexGasPrice)
         return Result.success(gasPrice)
     }
@@ -603,8 +596,77 @@ class BlockchainService(
             return Result.failure(Exception("发送交易失败: ${rpcResponse.error.message}"))
         }
         
-        val txHash = rpcResponse.result ?: return Result.failure(Exception("交易哈希为空"))
+        // 使用 Gson 解析 result（JsonElement）
+        val txHash = rpcResponse.result?.asString 
+            ?: return Result.failure(Exception("交易哈希为空"))
         return Result.success(txHash)
+    }
+    
+    /**
+     * 从链上查询市场条件（Condition）的结算结果
+     * 通过调用 ConditionalTokens 合约的 getCondition 函数获取 payouts
+     * 
+     * @param conditionId 市场条件ID（bytes32，必须是 0x 开头的 66 位十六进制字符串）
+     * @return Result<Pair<payoutDenominator, payouts>>
+     *   - payoutDenominator: 支付分母（通常为 1）
+     *   - payouts: 每个 outcome 的支付金额数组（0 或 1）
+     *   - 如果 payouts[outcomeIndex] == 1，表示该 outcome 赢了
+     *   - 如果 payouts[outcomeIndex] == 0，表示该 outcome 输了
+     *   - 如果 payouts 为空，表示市场尚未结算
+     */
+    suspend fun getCondition(conditionId: String): Result<Pair<BigInteger, List<BigInteger>>> {
+        return try {
+            // 验证 conditionId 格式
+            if (conditionId.isBlank() || !conditionId.startsWith("0x") || conditionId.length != 66) {
+                return Result.failure(IllegalArgumentException("conditionId 格式错误，必须是 0x 开头的 66 位十六进制字符串"))
+            }
+            
+            val rpcApi = polygonRpcApi
+            
+            // 构建 getCondition(bytes32) 函数调用
+            // 函数签名: getCondition(bytes32)
+            val functionSelector = EthereumUtils.getFunctionSelector("getCondition(bytes32)")
+            val encodedConditionId = EthereumUtils.encodeBytes32(conditionId)
+            val data = functionSelector + encodedConditionId
+            
+            // 构建 JSON-RPC 请求
+            val rpcRequest = JsonRpcRequest(
+                method = "eth_call",
+                params = listOf(
+                    mapOf(
+                        "to" to conditionalTokensAddress,
+                        "data" to data
+                    ),
+                    "latest"
+                )
+            )
+            
+            // 发送 RPC 请求
+            val response = rpcApi.call(rpcRequest)
+            
+            if (!response.isSuccessful || response.body() == null) {
+                return Result.failure(Exception("RPC 请求失败: ${response.code()} ${response.message()}"))
+            }
+            
+            val rpcResponse = response.body()!!
+            
+            // 检查错误
+            if (rpcResponse.error != null) {
+                return Result.failure(Exception("RPC 错误: ${rpcResponse.error.message}"))
+            }
+            
+            // 使用 Gson 解析 result（JsonElement）
+            val hexResult = rpcResponse.result?.asString 
+                ?: return Result.failure(Exception("RPC 响应格式错误: result 为空"))
+            
+            // 解析 ABI 编码的返回结果
+            val (payoutDenominator, payouts) = EthereumUtils.decodeConditionResult(hexResult)
+            
+            Result.success(Pair(payoutDenominator, payouts))
+        } catch (e: Exception) {
+            logger.error("查询市场条件失败: conditionId=$conditionId, ${e.message}", e)
+            Result.failure(e)
+        }
     }
     
     /**
@@ -614,11 +676,7 @@ class BlockchainService(
      */
     suspend fun getTransactionDetails(txHash: String): Result<String> {
         return try {
-            if (polygonRpcUrl.isBlank()) {
-                return Result.failure(IllegalStateException("未配置 Polygon RPC URL"))
-            }
-            
-            val rpcApi = polygonRpcApi ?: throw IllegalStateException("Polygon RPC URL 未配置")
+            val rpcApi = polygonRpcApi
             
             // 查询交易
             val txRequest = JsonRpcRequest(
@@ -636,7 +694,9 @@ class BlockchainService(
                 return Result.failure(Exception("查询交易失败: ${txRpcResponse.error.message}"))
             }
             
-            val txResult = txRpcResponse.result ?: return Result.failure(Exception("交易结果为空"))
+            // 使用 Gson 解析 result（JsonElement）
+            val txResult = txRpcResponse.result?.toString() 
+                ?: return Result.failure(Exception("交易结果为空"))
             
             // 查询交易回执（包含内部调用和事件日志）
             val receiptRequest = JsonRpcRequest(
@@ -653,7 +713,7 @@ class BlockchainService(
             val receiptResult = if (receiptRpcResponse.error != null) {
                 "交易回执查询失败: ${receiptRpcResponse.error.message}"
             } else {
-                receiptRpcResponse.result ?: "交易回执为空（可能还在打包中）"
+                receiptRpcResponse.result?.toString() ?: "交易回执为空（可能还在打包中）"
             }
             
             Result.success("交易信息:\n$txResult\n\n交易回执:\n$receiptResult")

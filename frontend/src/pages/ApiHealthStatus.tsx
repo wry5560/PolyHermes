@@ -98,21 +98,41 @@ const ApiHealthStatus: React.FC = () => {
                     }}
                     bodyStyle={{ padding: '12px' }}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
-                      <Text strong style={{ fontSize: '14px' }}>
-                        {item.name}
-                      </Text>
-                      <Space>
-                        {item.responseTime !== undefined && item.responseTime !== null && (
-                          <Text type="secondary" style={{ fontSize: '12px' }}>
-                            <Text strong style={{ color: '#1890ff' }}>{item.responseTime}ms</Text>
+                    <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                        <Text strong style={{ fontSize: '14px' }}>
+                          {item.name}
+                        </Text>
+                        <Space>
+                          {item.responseTime !== undefined && item.responseTime !== null && (
+                            <Text type="secondary" style={{ fontSize: '12px' }}>
+                              <Text strong style={{ color: '#1890ff' }}>{item.responseTime}ms</Text>
+                            </Text>
+                          )}
+                          <Badge 
+                            status={item.status === 'success' ? 'success' : item.status === 'skipped' ? 'default' : 'error'}
+                            text={getStatusText(item.status)}
+                          />
+                        </Space>
+                      </div>
+                      
+                      <div>
+                        <Text type="secondary" style={{ fontSize: '12px', wordBreak: 'break-all' }}>
+                          {item.url}
+                        </Text>
+                      </div>
+                      
+                      {item.message && item.message !== '连接成功' && (
+                        <div>
+                          <Text 
+                            type={item.status === 'success' ? 'success' : item.status === 'skipped' ? 'secondary' : 'danger'}
+                            style={{ fontSize: '12px' }}
+                          >
+                            {item.message}
                           </Text>
-                        )}
-                        <Badge 
-                          status={item.status === 'success' ? 'success' : item.status === 'skipped' ? 'default' : 'error'}
-                        />
-                      </Space>
-                    </div>
+                        </div>
+                      )}
+                    </Space>
                   </Card>
                 ) : (
                   <Card

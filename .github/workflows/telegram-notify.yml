@@ -129,10 +129,7 @@ print(text, end='')
 PYTHON_SCRIPT
             <<< "$PR_BODY")
             
-            MESSAGE="${MESSAGE}
-
-📄 <b>PR 描述:</b>
-${PR_BODY_HTML}"
+            MESSAGE="${MESSAGE}"$'\n'$'\n'"📄 <b>PR 描述:</b>"$'\n'"${PR_BODY_HTML}"
           fi
           
           # 发送 Telegram 消息（使用 jq 转义 JSON）

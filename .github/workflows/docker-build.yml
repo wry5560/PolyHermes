@@ -85,18 +85,20 @@ jobs:
           REPO_NAME="${{ github.repository }}"
           
           # 构建消息内容（使用 HTML 格式）
-          MESSAGE="✅ <b>Docker 镜像构建成功</b>
+          MESSAGE=$(cat <<EOF
+✅ <b>Docker 镜像构建成功</b>
 
 📦 <b>版本:</b> ${VERSION}
 🏷️ <b>Tag:</b> <code>${TAG}</code>
-🔗 <b>Release:</b> <a href=\"${RELEASE_URL}\">查看 Release</a>
-🐳 <b>Docker 镜像:</b> <code>wrbug/polyhermes:${TAG}</code>"
+🔗 <b>Release:</b> <a href="${RELEASE_URL}">查看 Release</a>
+🐳 <b>Docker 镜像:</b> <code>wrbug/polyhermes:${TAG}</code>
+EOF
+)
           
           # 添加 Release 名称（如果有）
           if [ -n "$RELEASE_NAME" ] && [ "$RELEASE_NAME" != "null" ] && [ "$RELEASE_NAME" != "" ]; then
             RELEASE_NAME_ESCAPED=$(echo "$RELEASE_NAME" | sed 's/&/\&amp;/g' | sed 's/</\&lt;/g' | sed 's/>/\&gt;/g')
-            MESSAGE="${MESSAGE}
-📝 <b>Release 名称:</b> ${RELEASE_NAME_ESCAPED}"
+            MESSAGE="${MESSAGE}"$'\n'$'\n'"📝 <b>Release 名称:</b> ${RELEASE_NAME_ESCAPED}"
           fi
           
           # 发送 Telegram 消息（使用 jq 转义 JSON）

@@ -199,22 +199,29 @@ class OrderStatusUpdateService(
                             // 查询订单详情
                             val orderResponse = clobApi.getOrder(order.buyOrderId)
                             
-                            if (!orderResponse.isSuccessful) {
-                                // HTTP 错误，可能是订单不存在，删除
-                                logger.info("订单查询失败（HTTP错误），删除本地订单: orderId=${order.buyOrderId}, copyOrderTrackingId=${order.id}, code=${orderResponse.code()}")
-                                try {
-                                    copyOrderTrackingRepository.deleteById(order.id!!)
-                                    logger.info("已删除本地订单: orderId=${order.buyOrderId}, copyOrderTrackingId=${order.id}")
-                                } catch (e: Exception) {
-                                    logger.error("删除本地订单失败: orderId=${order.buyOrderId}, copyOrderTrackingId=${order.id}, error=${e.message}", e)
-                                }
+                            // 先检查 HTTP 状态码，非 200 的都跳过
+                            if (orderResponse.code() != 200) {
+                                // HTTP 非 200，记录日志并跳过，等待下次轮询
+                                // 不删除订单，因为可能是临时网络问题或 API 错误
+                                val errorBody = orderResponse.errorBody()?.string()?.take(200) ?: "无错误详情"
+                                logger.debug("订单查询失败（HTTP非200），等待下次轮询: orderId=${order.buyOrderId}, copyOrderTrackingId=${order.id}, code=${orderResponse.code()}, errorBody=$errorBody")
                                 continue
                             }
                             
+                            // HTTP 200，检查响应体
+                            // 响应体也可能返回字符串 "null"，Gson 解析时会返回 null
                             val orderDetail = orderResponse.body()
                             if (orderDetail == null) {
-                                // HTTP 200 但响应体为空，表示订单不存在，删除
-                                logger.info("订单不存在（响应体为空），删除本地订单: orderId=${order.buyOrderId}, copyOrderTrackingId=${order.id}, code=${orderResponse.code()}")
+                                // HTTP 200 且响应体为 null（或字符串 "null"），表示订单不存在
+                                // 检查订单是否已部分卖出，如果已部分卖出则保留订单用于统计
+                                val hasMatchedDetails = sellMatchDetailRepository.findByTrackingId(order.id!!).isNotEmpty()
+                                if (hasMatchedDetails || order.matchedQuantity > BigDecimal.ZERO) {
+                                    logger.debug("订单不存在但已部分卖出，保留订单用于统计: orderId=${order.buyOrderId}, copyOrderTrackingId=${order.id}, matchedQuantity=${order.matchedQuantity}")
+                                    continue
+                                }
+                                
+                                // 订单不存在且未部分卖出，删除本地订单
+                                logger.info("订单不存在（HTTP 200 但响应体为空），删除本地订单: orderId=${order.buyOrderId}, copyOrderTrackingId=${order.id}")
                                 try {
                                     copyOrderTrackingRepository.deleteById(order.id!!)
                                     logger.info("已删除本地订单: orderId=${order.buyOrderId}, copyOrderTrackingId=${order.id}")
@@ -577,16 +584,28 @@ class OrderStatusUpdateService(
                     
                     // 查询订单详情
                     val orderResponse = clobApi.getOrder(order.buyOrderId)
-                    if (!orderResponse.isSuccessful) {
+                    
+                    // 先检查 HTTP 状态码，非 200 的都跳过
+                    if (orderResponse.code() != 200) {
                         val errorBody = orderResponse.errorBody()?.string()?.take(200) ?: "无错误详情"
-                        logger.debug("查询订单详情失败，等待下次轮询: orderId=${order.buyOrderId}, code=${orderResponse.code()}, errorBody=$errorBody")
+                        logger.debug("查询订单详情失败（HTTP非200），等待下次轮询: orderId=${order.buyOrderId}, copyOrderTrackingId=${order.id}, code=${orderResponse.code()}, errorBody=$errorBody")
                         continue
                     }
                     
+                    // HTTP 200，检查响应体
+                    // 响应体也可能返回字符串 "null"，Gson 解析时会返回 null
                     val orderDetail = orderResponse.body()
                     if (orderDetail == null) {
-                        // HTTP 200 但响应体为空，表示订单不存在（没有交易成功），删除本地订单
-                        logger.info("订单不存在（响应体为空），删除本地订单: orderId=${order.buyOrderId}, copyOrderTrackingId=${order.id}, code=${orderResponse.code()}")
+                        // HTTP 200 且响应体为 null（或字符串 "null"），表示订单不存在
+                        // 检查订单是否已部分卖出，如果已部分卖出则保留订单用于统计
+                        val hasMatchedDetails = sellMatchDetailRepository.findByTrackingId(order.id!!).isNotEmpty()
+                        if (hasMatchedDetails || order.matchedQuantity > BigDecimal.ZERO) {
+                            logger.debug("订单不存在但已部分卖出，保留订单用于统计: orderId=${order.buyOrderId}, copyOrderTrackingId=${order.id}, matchedQuantity=${order.matchedQuantity}")
+                            continue
+                        }
+                        
+                        // 订单不存在且未部分卖出，删除本地订单
+                        logger.info("订单不存在（HTTP 200 但响应体为空），删除本地订单: orderId=${order.buyOrderId}, copyOrderTrackingId=${order.id}")
                         try {
                             copyOrderTrackingRepository.deleteById(order.id!!)
                             logger.info("已删除本地订单: orderId=${order.buyOrderId}, copyOrderTrackingId=${order.id}")

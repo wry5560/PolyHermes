@@ -1455,9 +1455,9 @@ const PositionList: React.FC = () => {
                   }}
                   placeholder="请输入限价价格"
                 />
-                {marketPrice?.bestBid && (
+                {marketPrice?.currentPrice && (
                   <div style={{ marginTop: '4px', fontSize: '12px', color: '#999' }}>
-                    参考价格（最优买价，卖出参考）: {formatNumber(marketPrice.bestBid, 4)}
+                    参考价格（卖出参考）: {formatNumber(marketPrice.currentPrice, 4)}
                   </div>
                 )}
               </Form.Item>

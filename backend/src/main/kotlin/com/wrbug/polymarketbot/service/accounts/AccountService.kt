@@ -1154,13 +1154,13 @@ class AccountService(
                         null
                     }
 
+                    // 优先使用 lastPrice（最近成交价），如果没有则使用 bestBid，最后使用 midpoint
+                    val currentPrice = lastPrice ?: bestBid ?: midpoint ?: "0"
+
                     Result.success(
                         MarketPriceResponse(
                             marketId = marketId,
-                            lastPrice = lastPrice,
-                            bestBid = bestBid,
-                            bestAsk = bestAsk,
-                            midpoint = midpoint
+                            currentPrice = currentPrice
                         )
                     )
                 } else {

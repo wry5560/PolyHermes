@@ -681,9 +681,10 @@ class AccountService(
                 if (account.proxyAddress.isNotBlank()) {
                     try {
                         // 查询所有仓位（不限制 sortBy，获取当前和历史仓位）
-                        val positionsResult = blockchainService.getPositions(account.proxyAddress)
+                        val positionsResult = blockchainService.getPositions(account.proxyAddress, sortBy = null)
                         if (positionsResult.isSuccess) {
                             val positions = positionsResult.getOrNull() ?: emptyList()
+                            logger.info("账户 ${account.id} 从 Data API 获取到 ${positions.size} 个仓位")
                             // 遍历所有仓位，区分当前仓位和历史仓位
                             positions.forEach { pos ->
                                 val currentValue = pos.currentValue?.toSafeBigDecimal() ?: BigDecimal.ZERO
@@ -746,6 +747,7 @@ class AccountService(
 
             // 按照接口返回的顺序返回，不进行排序
             // 前端负责本地排序
+            logger.info("仓位汇总: 当前仓位=${currentPositions.size}, 历史仓位=${historyPositions.size}")
             Result.success(
                 PositionListResponse(
                     currentPositions = currentPositions,

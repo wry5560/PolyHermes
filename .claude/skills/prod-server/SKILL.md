@@ -64,33 +64,57 @@ ssh -i opt/AlphaQuant.pem root@8.221.142.8 "journalctl -n 50 --no-pager"
 
 ```bash
 # 重启应用容器
-ssh -i opt/AlphaQuant.pem root@8.221.142.8 "cd /opt/polyhermes && docker-compose -f docker-compose.prod.yml restart app"
+ssh -i opt/AlphaQuant.pem root@8.221.142.8 "cd /opt/polyhermes && docker compose -f docker-compose.prod.yml restart app"
 
 # 重启所有服务
-ssh -i opt/AlphaQuant.pem root@8.221.142.8 "cd /opt/polyhermes && docker-compose -f docker-compose.prod.yml restart"
+ssh -i opt/AlphaQuant.pem root@8.221.142.8 "cd /opt/polyhermes && docker compose -f docker-compose.prod.yml restart"
 
 # 停止服务
-ssh -i opt/AlphaQuant.pem root@8.221.142.8 "cd /opt/polyhermes && docker-compose -f docker-compose.prod.yml down"
+ssh -i opt/AlphaQuant.pem root@8.221.142.8 "cd /opt/polyhermes && docker compose -f docker-compose.prod.yml down"
 
 # 启动服务
-ssh -i opt/AlphaQuant.pem root@8.221.142.8 "cd /opt/polyhermes && docker-compose -f docker-compose.prod.yml up -d"
-
-# 重新拉取镜像并更新
-ssh -i opt/AlphaQuant.pem root@8.221.142.8 "cd /opt/polyhermes && docker-compose -f docker-compose.prod.yml pull && docker-compose -f docker-compose.prod.yml up -d"
+ssh -i opt/AlphaQuant.pem root@8.221.142.8 "cd /opt/polyhermes && docker compose -f docker-compose.prod.yml up -d"
 ```
 
-### 4. 部署更新
+### 4. 部署更新（重要）
+
+> **⚠️ 必须使用本地代码构建部署**
+>
+> 本仓库是 fork 的私有仓库，包含自定义修改。**禁止**直接拉取 Docker Hub 镜像（wrbug/polyhermes），
+> 那是上游仓库的镜像，不包含我们的代码修改。
+>
+> 当用户要求"更新生产环境"、"部署"、"deploy"时，**必须**执行以下本地构建流程。
+
+#### 标准部署流程（必须按此顺序执行）
 
 ```bash
-# 方式1: 使用 Docker Hub 镜像更新
-ssh -i opt/AlphaQuant.pem root@8.221.142.8 "cd /opt/polyhermes && docker-compose -f docker-compose.prod.yml pull && docker-compose -f docker-compose.prod.yml up -d"
-
-# 方式2: 上传本地构建的镜像
-# 先本地构建
+# 步骤 1: 本地构建 Docker 镜像
 docker build -t polyhermes:latest .
+
+# 步骤 2: 导出镜像为压缩包
 docker save polyhermes:latest | gzip > /tmp/polyhermes.tar.gz
+
+# 步骤 3: 上传镜像到生产服务器
 scp -i opt/AlphaQuant.pem /tmp/polyhermes.tar.gz root@8.221.142.8:/tmp/
-ssh -i opt/AlphaQuant.pem root@8.221.142.8 "gunzip -c /tmp/polyhermes.tar.gz | docker load && cd /opt/polyhermes && docker-compose -f docker-compose.prod.yml up -d"
+
+# 步骤 4: 在服务器上加载镜像并重启服务
+ssh -i opt/AlphaQuant.pem root@8.221.142.8 "gunzip -c /tmp/polyhermes.tar.gz | docker load && cd /opt/polyhermes && docker compose -f docker-compose.prod.yml up -d"
+
+# 步骤 5: 验证部署状态
+ssh -i opt/AlphaQuant.pem root@8.221.142.8 "docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'"
+
+# 步骤 6: 清理本地临时文件
+rm -f /tmp/polyhermes.tar.gz
+```
+
+#### 快速验证命令
+
+```bash
+# 检查当前运行的镜像信息（确认是本地构建的）
+ssh -i opt/AlphaQuant.pem root@8.221.142.8 "docker images polyhermes:latest --format '{{.ID}} {{.CreatedAt}}'"
+
+# 查看应用启动日志
+ssh -i opt/AlphaQuant.pem root@8.221.142.8 "docker logs --tail 30 polyhermes"
 ```
 
 ### 5. 数据库操作
@@ -151,7 +175,7 @@ scp -i opt/AlphaQuant.pem root@8.221.142.8:/opt/polyhermes/.env ./temp_env
 # 3. 上传配置
 scp -i opt/AlphaQuant.pem ./temp_env root@8.221.142.8:/opt/polyhermes/.env
 # 4. 重启服务
-ssh -i opt/AlphaQuant.pem root@8.221.142.8 "cd /opt/polyhermes && docker-compose -f docker-compose.prod.yml restart"
+ssh -i opt/AlphaQuant.pem root@8.221.142.8 "cd /opt/polyhermes && docker compose -f docker-compose.prod.yml restart"
 ```
 
 ## 首次部署流程
@@ -169,11 +193,20 @@ scp -i opt/AlphaQuant.pem docker-compose.prod.env.example root@8.221.142.8:/opt/
 # 4. 安装 Docker（如果没有）
 ssh -i opt/AlphaQuant.pem root@8.221.142.8 "curl -fsSL https://get.docker.com | sh"
 
-# 5. 启动服务
-ssh -i opt/AlphaQuant.pem root@8.221.142.8 "cd /opt/polyhermes && docker-compose -f docker-compose.prod.yml up -d"
+# 5. 本地构建并上传镜像（必须使用本地代码）
+docker build -t polyhermes:latest .
+docker save polyhermes:latest | gzip > /tmp/polyhermes.tar.gz
+scp -i opt/AlphaQuant.pem /tmp/polyhermes.tar.gz root@8.221.142.8:/tmp/
+ssh -i opt/AlphaQuant.pem root@8.221.142.8 "gunzip -c /tmp/polyhermes.tar.gz | docker load"
 
-# 6. 检查状态
-ssh -i opt/AlphaQuant.pem root@8.221.142.8 "docker ps && curl -s http://localhost/api/health"
+# 6. 启动服务
+ssh -i opt/AlphaQuant.pem root@8.221.142.8 "cd /opt/polyhermes && docker compose -f docker-compose.prod.yml up -d"
+
+# 7. 检查状态
+ssh -i opt/AlphaQuant.pem root@8.221.142.8 "docker ps"
+
+# 8. 清理本地临时文件
+rm -f /tmp/polyhermes.tar.gz
 ```
 
 ## 故障排查

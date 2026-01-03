@@ -37,7 +37,6 @@ open class CopyOrderTrackingService(
     private val sellMatchRecordRepository: SellMatchRecordRepository,
     private val sellMatchDetailRepository: SellMatchDetailRepository,
     private val processedTradeRepository: ProcessedTradeRepository,
-    private val failedTradeRepository: FailedTradeRepository,
     private val filteredOrderRepository: FilteredOrderRepository,
     private val copyTradingRepository: CopyTradingRepository,
     private val accountRepository: AccountRepository,
@@ -132,12 +131,6 @@ open class CopyOrderTrackingService(
                 if (existingProcessed.status == "FAILED") {
                         return@withLock Result.success(Unit)
                 }
-                    return@withLock Result.success(Unit)
-            }
-
-            // 检查是否已记录为失败交易
-            val failedTrade = failedTradeRepository.findByLeaderIdAndLeaderTradeId(leaderId, trade.id)
-            if (failedTrade != null) {
                     return@withLock Result.success(Unit)
             }
 
@@ -1264,32 +1257,8 @@ open class CopyOrderTrackingService(
         retryCount: Int
     ) {
         try {
-            // 确保错误信息不超过数据库字段限制（TEXT类型通常支持65535字符）
-            val maxErrorMessageLength = 50000  // 保留一些余量
-            val finalErrorMessage = if (errorMessage.length > maxErrorMessageLength) {
-                errorMessage.substring(0, maxErrorMessageLength) + "... (截断)"
-            } else {
-                errorMessage
-            }
-
-            val failedTrade = FailedTrade(
-                leaderId = leaderId,
-                leaderTradeId = trade.id,
-                tradeType = trade.side.uppercase(),
-                copyTradingId = copyTradingId,
-                accountId = accountId,
-                marketId = trade.market,
-                side = side,
-                price = price,
-                size = size,
-                errorMessage = finalErrorMessage,
-                retryCount = retryCount,
-                failedAt = System.currentTimeMillis()
-            )
-            failedTradeRepository.save(failedTrade)
-
-            // 记录日志，确认已保存到数据库
-            logger.info("失败交易已保存到数据库: leaderId=$leaderId, tradeId=${trade.id}, errorMessageLength=${finalErrorMessage.length}")
+            // 记录日志
+            logger.warn("交易处理失败: leaderId=$leaderId, tradeId=${trade.id}, side=$side, price=$price, size=$size, errorMessage=$errorMessage")
 
             // 标记为已处理（失败状态），避免重复处理
             // 注意：并发情况下可能多个请求同时处理同一笔交易，需要处理唯一约束冲突

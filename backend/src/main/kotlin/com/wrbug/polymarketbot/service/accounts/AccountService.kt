@@ -918,6 +918,8 @@ class AccountService(
             val decryptedPrivateKey = decryptPrivateKey(account)
 
             // 11. 创建并签名订单（使用计算后的卖出数量）
+            // 根据钱包类型选择签名类型：magic -> 1 (POLY_PROXY), safe -> 2 (POLY_GNOSIS_SAFE)
+            val signatureType = if (account.walletType.lowercase() == "safe") 2 else 1
             val signedOrder = try {
                 orderSigningService.createAndSignOrder(
                     privateKey = decryptedPrivateKey,
@@ -926,7 +928,7 @@ class AccountService(
                     side = "SELL",
                     price = sellPrice,
                     size = sellQuantity.toPlainString(),  // 使用计算后的卖出数量
-                    signatureType = 2,  // Browser Wallet（与正确订单数据一致）
+                    signatureType = signatureType,
                     nonce = "0",
                     feeRateBps = "0",
                     expiration = expiration

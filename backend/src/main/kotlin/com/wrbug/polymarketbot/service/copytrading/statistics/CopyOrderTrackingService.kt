@@ -477,7 +477,8 @@ open class CopyOrderTrackingService(
                         size = finalBuyQuantity.toString(),
                         owner = account.apiKey,
                         copyTradingId = copyTrading.id!!,
-                        tradeId = trade.id
+                        tradeId = trade.id,
+                        walletType = account.walletType
                     )
 
                     // 处理订单创建失败
@@ -891,6 +892,8 @@ open class CopyOrderTrackingService(
         val decryptedPrivateKey = decryptPrivateKey(account)
         
         // 9. 创建并签名卖出订单
+        // 根据钱包类型选择签名类型：magic -> 1 (POLY_PROXY), safe -> 2 (POLY_GNOSIS_SAFE)
+        val signatureType = if (account.walletType.lowercase() == "safe") 2 else 1
         val signedOrder = try {
             orderSigningService.createAndSignOrder(
                 privateKey = decryptedPrivateKey,
@@ -899,7 +902,7 @@ open class CopyOrderTrackingService(
                 side = "SELL",
                 price = sellPrice.toString(),
                 size = totalMatched.toString(),
-                signatureType = 2,  // Browser Wallet
+                signatureType = signatureType,
                 nonce = "0",
                 feeRateBps = "0",
                 expiration = "0"
@@ -939,7 +942,8 @@ open class CopyOrderTrackingService(
             size = totalMatched.toString(),
             owner = account.apiKey,
             copyTradingId = copyTrading.id,
-            tradeId = leaderSellTrade.id
+            tradeId = leaderSellTrade.id,
+            walletType = account.walletType
         )
 
         if (createOrderResult.isFailure) {
@@ -1043,7 +1047,8 @@ open class CopyOrderTrackingService(
         size: String,
         owner: String,
         copyTradingId: Long,
-        tradeId: String
+        tradeId: String,
+        walletType: String = "magic"  // 钱包类型：magic 或 safe
     ): Result<String> {
         var lastError: Exception? = null
 
@@ -1051,6 +1056,8 @@ open class CopyOrderTrackingService(
         for (attempt in 1..MAX_RETRY_ATTEMPTS) {
             try {
                 // 每次重试都重新生成salt并重新签名，确保签名唯一性
+                // 根据钱包类型选择签名类型：magic -> 1 (POLY_PROXY), safe -> 2 (POLY_GNOSIS_SAFE)
+                val signatureType = if (walletType.lowercase() == "safe") 2 else 1
                 val signedOrder = orderSigningService.createAndSignOrder(
                     privateKey = privateKey,
                     makerAddress = makerAddress,
@@ -1058,7 +1065,7 @@ open class CopyOrderTrackingService(
                     side = side,
                     price = price,
                     size = size,
-                    signatureType = 2,  // Browser Wallet
+                    signatureType = signatureType,
                     nonce = "0",
                     feeRateBps = "0",
                     expiration = "0"

@@ -1,7 +1,7 @@
 ---
 name: prod-server
 description: 生产服务器运维操作。部署应用、查看日志、重启服务、检查状态、数据库备份等。当用户提到"生产服务器"、"生产环境"、"部署"、"服务器状态"、"远程"、"prod"时使用此技能。
-allowed-tools: Bash(ssh:*), Bash(scp:*), Read, Write
+allowed-tools: Bash(ssh:*), Bash(scp:*), Bash(git:*), Read, Write
 ---
 
 # 生产服务器运维 (Production Server Operations)
@@ -15,6 +15,8 @@ allowed-tools: Bash(ssh:*), Bash(scp:*), Read, Write
 | **SSH 用户** | root |
 | **SSH 密钥** | opt/AlphaQuant.pem |
 | **应用端口** | 80 (HTTP), 443 (HTTPS) |
+| **代码目录** | /opt/polyhermes |
+| **Git 仓库** | https://github.com/wry5560/PolyHermes.git |
 
 ## SSH 连接命令
 
@@ -24,6 +26,46 @@ ssh -i opt/AlphaQuant.pem root@8.221.142.8 "<命令>"
 
 # 交互式连接（不推荐在 Claude 中使用）
 ssh -i opt/AlphaQuant.pem root@8.221.142.8
+```
+
+## 标准部署流程（重要）
+
+> **工作流：本地修改 → 推送 → 生产拉取 → 生产构建**
+>
+> 本仓库是 fork 的私有仓库，包含自定义修改。生产环境从 Git 仓库拉取代码并在服务器上构建。
+
+### 完整部署步骤
+
+```bash
+# 步骤 1: 本地提交并推送代码
+git add .
+git commit -m "描述修改内容"
+git push origin main
+
+# 步骤 2: 生产环境拉取最新代码
+ssh -i opt/AlphaQuant.pem root@8.221.142.8 "cd /opt/polyhermes && git pull"
+
+# 步骤 3: 生产环境构建 Docker 镜像
+ssh -i opt/AlphaQuant.pem root@8.221.142.8 "cd /opt/polyhermes && docker compose build --no-cache app"
+
+# 步骤 4: 重启服务（使用新镜像）
+ssh -i opt/AlphaQuant.pem root@8.221.142.8 "cd /opt/polyhermes && docker compose up -d --force-recreate app"
+
+# 步骤 5: 验证部署
+ssh -i opt/AlphaQuant.pem root@8.221.142.8 "docker ps && sleep 5 && docker logs --tail 20 polyhermes"
+```
+
+### 快速部署（一条命令）
+
+```bash
+# 生产环境：拉取 + 构建 + 重启
+ssh -i opt/AlphaQuant.pem root@8.221.142.8 "cd /opt/polyhermes && git pull && docker compose build app && docker compose up -d --force-recreate app"
+```
+
+### 仅重启（不重新构建）
+
+```bash
+ssh -i opt/AlphaQuant.pem root@8.221.142.8 "cd /opt/polyhermes && docker compose restart app"
 ```
 
 ## 常用运维命令
@@ -42,6 +84,9 @@ ssh -i opt/AlphaQuant.pem root@8.221.142.8 "curl -s http://localhost/api/health"
 
 # 检查端口监听
 ssh -i opt/AlphaQuant.pem root@8.221.142.8 "ss -tlnp | grep -E ':(80|443|8000|3306)'"
+
+# 检查代码版本
+ssh -i opt/AlphaQuant.pem root@8.221.142.8 "cd /opt/polyhermes && git log --oneline -3"
 ```
 
 ### 2. 日志查看
@@ -58,66 +103,28 @@ ssh -i opt/AlphaQuant.pem root@8.221.142.8 "docker logs --tail 50 polyhermes-mys
 
 # 查看系统日志
 ssh -i opt/AlphaQuant.pem root@8.221.142.8 "journalctl -n 50 --no-pager"
+
+# 按关键词过滤日志
+ssh -i opt/AlphaQuant.pem root@8.221.142.8 "docker logs --tail 500 polyhermes 2>&1 | grep -i error"
 ```
 
 ### 3. 服务管理
 
 ```bash
 # 重启应用容器
-ssh -i opt/AlphaQuant.pem root@8.221.142.8 "cd /opt/polyhermes && docker compose -f docker-compose.prod.yml restart app"
+ssh -i opt/AlphaQuant.pem root@8.221.142.8 "cd /opt/polyhermes && docker compose restart app"
 
 # 重启所有服务
-ssh -i opt/AlphaQuant.pem root@8.221.142.8 "cd /opt/polyhermes && docker compose -f docker-compose.prod.yml restart"
+ssh -i opt/AlphaQuant.pem root@8.221.142.8 "cd /opt/polyhermes && docker compose restart"
 
 # 停止服务
-ssh -i opt/AlphaQuant.pem root@8.221.142.8 "cd /opt/polyhermes && docker compose -f docker-compose.prod.yml down"
+ssh -i opt/AlphaQuant.pem root@8.221.142.8 "cd /opt/polyhermes && docker compose down"
 
 # 启动服务
-ssh -i opt/AlphaQuant.pem root@8.221.142.8 "cd /opt/polyhermes && docker compose -f docker-compose.prod.yml up -d"
+ssh -i opt/AlphaQuant.pem root@8.221.142.8 "cd /opt/polyhermes && docker compose up -d"
 ```
 
-### 4. 部署更新（重要）
-
-> **⚠️ 必须使用本地代码构建部署**
->
-> 本仓库是 fork 的私有仓库，包含自定义修改。**禁止**直接拉取 Docker Hub 镜像（wrbug/polyhermes），
-> 那是上游仓库的镜像，不包含我们的代码修改。
->
-> 当用户要求"更新生产环境"、"部署"、"deploy"时，**必须**执行以下本地构建流程。
-
-#### 标准部署流程（必须按此顺序执行）
-
-```bash
-# 步骤 1: 本地构建 Docker 镜像
-docker build -t polyhermes:latest .
-
-# 步骤 2: 导出镜像为压缩包
-docker save polyhermes:latest | gzip > /tmp/polyhermes.tar.gz
-
-# 步骤 3: 上传镜像到生产服务器
-scp -i opt/AlphaQuant.pem /tmp/polyhermes.tar.gz root@8.221.142.8:/tmp/
-
-# 步骤 4: 在服务器上加载镜像并重启服务
-ssh -i opt/AlphaQuant.pem root@8.221.142.8 "gunzip -c /tmp/polyhermes.tar.gz | docker load && cd /opt/polyhermes && docker compose -f docker-compose.prod.yml up -d"
-
-# 步骤 5: 验证部署状态
-ssh -i opt/AlphaQuant.pem root@8.221.142.8 "docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'"
-
-# 步骤 6: 清理本地临时文件
-rm -f /tmp/polyhermes.tar.gz
-```
-
-#### 快速验证命令
-
-```bash
-# 检查当前运行的镜像信息（确认是本地构建的）
-ssh -i opt/AlphaQuant.pem root@8.221.142.8 "docker images polyhermes:latest --format '{{.ID}} {{.CreatedAt}}'"
-
-# 查看应用启动日志
-ssh -i opt/AlphaQuant.pem root@8.221.142.8 "docker logs --tail 30 polyhermes"
-```
-
-### 5. 数据库操作
+### 4. 数据库操作
 
 ```bash
 # 备份数据库
@@ -128,12 +135,9 @@ ssh -i opt/AlphaQuant.pem root@8.221.142.8 "ls -lh /opt/polyhermes/*.sql"
 
 # 下载备份到本地
 scp -i opt/AlphaQuant.pem root@8.221.142.8:/opt/polyhermes/backup_*.sql ./backups/
-
-# 进入 MySQL 命令行
-ssh -i opt/AlphaQuant.pem root@8.221.142.8 "docker exec -it polyhermes-mysql mysql -u root -p polyhermes"
 ```
 
-### 6. 资源监控
+### 5. 资源监控
 
 ```bash
 # 查看 CPU 和内存使用
@@ -149,7 +153,7 @@ ssh -i opt/AlphaQuant.pem root@8.221.142.8 "docker stats --no-stream"
 ssh -i opt/AlphaQuant.pem root@8.221.142.8 "ss -s"
 ```
 
-### 7. 文件传输
+### 6. 文件传输
 
 ```bash
 # 上传文件到服务器
@@ -162,7 +166,7 @@ scp -i opt/AlphaQuant.pem root@8.221.142.8:<远程文件> <本地路径>
 scp -i opt/AlphaQuant.pem -r <本地目录> root@8.221.142.8:<远程路径>
 ```
 
-### 8. 环境配置
+### 7. 环境配置
 
 ```bash
 # 查看环境变量配置（隐藏敏感信息）
@@ -175,38 +179,23 @@ scp -i opt/AlphaQuant.pem root@8.221.142.8:/opt/polyhermes/.env ./temp_env
 # 3. 上传配置
 scp -i opt/AlphaQuant.pem ./temp_env root@8.221.142.8:/opt/polyhermes/.env
 # 4. 重启服务
-ssh -i opt/AlphaQuant.pem root@8.221.142.8 "cd /opt/polyhermes && docker compose -f docker-compose.prod.yml restart"
+ssh -i opt/AlphaQuant.pem root@8.221.142.8 "cd /opt/polyhermes && docker compose restart"
 ```
 
 ## 首次部署流程
 
 ```bash
-# 1. 创建部署目录
-ssh -i opt/AlphaQuant.pem root@8.221.142.8 "mkdir -p /opt/polyhermes"
+# 1. 克隆仓库到服务器
+ssh -i opt/AlphaQuant.pem root@8.221.142.8 "git clone https://github.com/wry5560/PolyHermes.git /opt/polyhermes"
 
-# 2. 上传配置文件
-scp -i opt/AlphaQuant.pem docker-compose.prod.yml root@8.221.142.8:/opt/polyhermes/
-scp -i opt/AlphaQuant.pem docker-compose.prod.env.example root@8.221.142.8:/opt/polyhermes/.env
+# 2. 上传 .env 配置文件
+scp -i opt/AlphaQuant.pem .env root@8.221.142.8:/opt/polyhermes/.env
 
-# 3. 在服务器上编辑 .env 配置密钥（或本地编辑后上传）
+# 3. 构建并启动服务
+ssh -i opt/AlphaQuant.pem root@8.221.142.8 "cd /opt/polyhermes && docker compose build && docker compose up -d"
 
-# 4. 安装 Docker（如果没有）
-ssh -i opt/AlphaQuant.pem root@8.221.142.8 "curl -fsSL https://get.docker.com | sh"
-
-# 5. 本地构建并上传镜像（必须使用本地代码）
-docker build -t polyhermes:latest .
-docker save polyhermes:latest | gzip > /tmp/polyhermes.tar.gz
-scp -i opt/AlphaQuant.pem /tmp/polyhermes.tar.gz root@8.221.142.8:/tmp/
-ssh -i opt/AlphaQuant.pem root@8.221.142.8 "gunzip -c /tmp/polyhermes.tar.gz | docker load"
-
-# 6. 启动服务
-ssh -i opt/AlphaQuant.pem root@8.221.142.8 "cd /opt/polyhermes && docker compose -f docker-compose.prod.yml up -d"
-
-# 7. 检查状态
+# 4. 检查状态
 ssh -i opt/AlphaQuant.pem root@8.221.142.8 "docker ps"
-
-# 8. 清理本地临时文件
-rm -f /tmp/polyhermes.tar.gz
 ```
 
 ## 故障排查
@@ -244,9 +233,19 @@ ssh -i opt/AlphaQuant.pem root@8.221.142.8 "docker system prune -af"
 ssh -i opt/AlphaQuant.pem root@8.221.142.8 "find /opt/polyhermes -name '*.sql' -mtime +7 -delete"
 ```
 
+### Git 拉取失败
+```bash
+# 检查 Git 状态
+ssh -i opt/AlphaQuant.pem root@8.221.142.8 "cd /opt/polyhermes && git status"
+
+# 强制重置到远程版本（慎用，会丢弃本地修改）
+ssh -i opt/AlphaQuant.pem root@8.221.142.8 "cd /opt/polyhermes && git fetch origin && git reset --hard origin/main"
+```
+
 ## 安全注意事项
 
 1. SSH 密钥文件 `opt/AlphaQuant.pem` 已加入 `.gitignore`，不要提交到仓库
 2. 不要在日志中输出密码或密钥
 3. 定期轮换 JWT_SECRET 和其他密钥
 4. 定期备份数据库
+5. `.env` 文件不在 Git 仓库中，需要单独管理

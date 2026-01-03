@@ -56,10 +56,13 @@ class OrderStatusUpdateService(
                 // 1. 清理已删除账户的订单
                 cleanupDeletedAccountOrders()
                 
-                // 2. 更新卖出订单的实际成交价并发送通知（priceUpdated 共用字段）
+                // 2. 检查30秒前创建的订单，如果未成交则删除
+                checkAndDeleteUnfilledOrders()
+                
+                // 3. 更新卖出订单的实际成交价并发送通知（priceUpdated 共用字段）
                 updatePendingSellOrderPrices()
                 
-                // 3. 更新买入订单的实际数据并发送通知
+                // 4. 更新买入订单的实际数据并发送通知
                 updatePendingBuyOrders()
             } catch (e: Exception) {
                 logger.error("订单状态更新异常: ${e.message}", e)
@@ -127,6 +130,131 @@ class OrderStatusUpdateService(
             }
         } catch (e: Exception) {
             logger.error("清理已删除账户订单异常: ${e.message}", e)
+        }
+    }
+    
+    /**
+     * 检查30秒前创建的订单，如果未成交则删除
+     * 首次检测但加入缓存中30s后还没有成交，则删除
+     */
+    @Transactional
+    private suspend fun checkAndDeleteUnfilledOrders() {
+        try {
+            // 计算30秒前的时间戳
+            val thirtySecondsAgo = System.currentTimeMillis() - 30000
+            
+            // 查询30秒前创建的订单
+            val ordersToCheck = copyOrderTrackingRepository.findByCreatedAtBefore(thirtySecondsAgo)
+            
+            if (ordersToCheck.isEmpty()) {
+                return
+            }
+            
+            logger.debug("检查 ${ordersToCheck.size} 个30秒前创建的订单是否成交")
+            
+            // 按账户分组，避免重复创建 API 客户端
+            val ordersByAccount = ordersToCheck.groupBy { it.accountId }
+            
+            for ((accountId, orders) in ordersByAccount) {
+                try {
+                    // 获取账户
+                    val account = accountRepository.findById(accountId).orElse(null)
+                    if (account == null) {
+                        logger.warn("账户不存在，跳过检查: accountId=$accountId")
+                        continue
+                    }
+                    
+                    // 检查账户是否配置了 API 凭证
+                    if (account.apiKey == null || account.apiSecret == null || account.apiPassphrase == null) {
+                        logger.debug("账户未配置 API 凭证，跳过检查: accountId=${account.id}")
+                        continue
+                    }
+                    
+                    // 解密 API 凭证
+                    val apiSecret = try {
+                        cryptoUtils.decrypt(account.apiSecret!!)
+                    } catch (e: Exception) {
+                        logger.warn("解密 API Secret 失败: accountId=${account.id}, error=${e.message}")
+                        continue
+                    }
+                    
+                    val apiPassphrase = try {
+                        cryptoUtils.decrypt(account.apiPassphrase!!)
+                    } catch (e: Exception) {
+                        logger.warn("解密 API Passphrase 失败: accountId=${account.id}, error=${e.message}")
+                        continue
+                    }
+                    
+                    // 创建带认证的 CLOB API 客户端
+                    val clobApi = retrofitFactory.createClobApi(
+                        account.apiKey!!,
+                        apiSecret,
+                        apiPassphrase,
+                        account.walletAddress
+                    )
+                    
+                    // 检查每个订单
+                    for (order in orders) {
+                        try {
+                            // 查询订单详情
+                            val orderResponse = clobApi.getOrder(order.buyOrderId)
+                            
+                            // 先检查 HTTP 状态码，非 200 的都跳过
+                            if (orderResponse.code() != 200) {
+                                // HTTP 非 200，记录日志并跳过，等待下次轮询
+                                // 不删除订单，因为可能是临时网络问题或 API 错误
+                                val errorBody = orderResponse.errorBody()?.string()?.take(200) ?: "无错误详情"
+                                logger.debug("订单查询失败（HTTP非200），等待下次轮询: orderId=${order.buyOrderId}, copyOrderTrackingId=${order.id}, code=${orderResponse.code()}, errorBody=$errorBody")
+                                continue
+                            }
+                            
+                            // HTTP 200，检查响应体
+                            // 响应体也可能返回字符串 "null"，Gson 解析时会返回 null
+                            val orderDetail = orderResponse.body()
+                            if (orderDetail == null) {
+                                // HTTP 200 且响应体为 null（或字符串 "null"），表示订单不存在
+                                // 检查订单是否已部分卖出，如果已部分卖出则保留订单用于统计
+                                val hasMatchedDetails = sellMatchDetailRepository.findByTrackingId(order.id!!).isNotEmpty()
+                                if (hasMatchedDetails || order.matchedQuantity > BigDecimal.ZERO) {
+                                    logger.debug("订单不存在但已部分卖出，保留订单用于统计: orderId=${order.buyOrderId}, copyOrderTrackingId=${order.id}, matchedQuantity=${order.matchedQuantity}")
+                                    continue
+                                }
+                                
+                                // 订单不存在且未部分卖出，删除本地订单
+                                logger.info("订单不存在（HTTP 200 但响应体为空），删除本地订单: orderId=${order.buyOrderId}, copyOrderTrackingId=${order.id}")
+                                try {
+                                    copyOrderTrackingRepository.deleteById(order.id!!)
+                                    logger.info("已删除本地订单: orderId=${order.buyOrderId}, copyOrderTrackingId=${order.id}")
+                                } catch (e: Exception) {
+                                    logger.error("删除本地订单失败: orderId=${order.buyOrderId}, copyOrderTrackingId=${order.id}, error=${e.message}", e)
+                                }
+                                continue
+                            }
+                            
+                            // 检查订单是否成交
+                            // 如果订单状态不是 FILLED 且已成交数量为0，说明未成交，删除
+                            val sizeMatched = orderDetail.sizeMatched?.toSafeBigDecimal() ?: BigDecimal.ZERO
+                            if (orderDetail.status != "FILLED" && sizeMatched <= BigDecimal.ZERO) {
+                                logger.info("订单30秒后仍未成交，删除本地订单: orderId=${order.buyOrderId}, copyOrderTrackingId=${order.id}, status=${orderDetail.status}, sizeMatched=$sizeMatched")
+                                try {
+                                    copyOrderTrackingRepository.deleteById(order.id!!)
+                                    logger.info("已删除未成交订单: orderId=${order.buyOrderId}, copyOrderTrackingId=${order.id}")
+                                } catch (e: Exception) {
+                                    logger.error("删除未成交订单失败: orderId=${order.buyOrderId}, copyOrderTrackingId=${order.id}, error=${e.message}", e)
+                                }
+                            } else {
+                                logger.debug("订单已成交或部分成交，保留: orderId=${order.buyOrderId}, status=${orderDetail.status}, sizeMatched=$sizeMatched")
+                            }
+                        } catch (e: Exception) {
+                            logger.error("检查订单失败: orderId=${order.buyOrderId}, error=${e.message}", e)
+                        }
+                    }
+                } catch (e: Exception) {
+                    logger.error("检查账户订单失败: accountId=$accountId, error=${e.message}", e)
+                }
+            }
+        } catch (e: Exception) {
+            logger.error("检查未成交订单异常: ${e.message}", e)
         }
     }
     
@@ -456,12 +584,36 @@ class OrderStatusUpdateService(
                     
                     // 查询订单详情
                     val orderResponse = clobApi.getOrder(order.buyOrderId)
-                    if (!orderResponse.isSuccessful || orderResponse.body() == null) {
-                        logger.debug("查询订单详情失败，等待下次轮询: orderId=${order.buyOrderId}, code=${orderResponse.code()}")
+                    
+                    // 先检查 HTTP 状态码，非 200 的都跳过
+                    if (orderResponse.code() != 200) {
+                        val errorBody = orderResponse.errorBody()?.string()?.take(200) ?: "无错误详情"
+                        logger.debug("查询订单详情失败（HTTP非200），等待下次轮询: orderId=${order.buyOrderId}, copyOrderTrackingId=${order.id}, code=${orderResponse.code()}, errorBody=$errorBody")
                         continue
                     }
                     
-                    val orderDetail = orderResponse.body()!!
+                    // HTTP 200，检查响应体
+                    // 响应体也可能返回字符串 "null"，Gson 解析时会返回 null
+                    val orderDetail = orderResponse.body()
+                    if (orderDetail == null) {
+                        // HTTP 200 且响应体为 null（或字符串 "null"），表示订单不存在
+                        // 检查订单是否已部分卖出，如果已部分卖出则保留订单用于统计
+                        val hasMatchedDetails = sellMatchDetailRepository.findByTrackingId(order.id!!).isNotEmpty()
+                        if (hasMatchedDetails || order.matchedQuantity > BigDecimal.ZERO) {
+                            logger.debug("订单不存在但已部分卖出，保留订单用于统计: orderId=${order.buyOrderId}, copyOrderTrackingId=${order.id}, matchedQuantity=${order.matchedQuantity}")
+                            continue
+                        }
+                        
+                        // 订单不存在且未部分卖出，删除本地订单
+                        logger.info("订单不存在（HTTP 200 但响应体为空），删除本地订单: orderId=${order.buyOrderId}, copyOrderTrackingId=${order.id}")
+                        try {
+                            copyOrderTrackingRepository.deleteById(order.id!!)
+                            logger.info("已删除本地订单: orderId=${order.buyOrderId}, copyOrderTrackingId=${order.id}")
+                        } catch (e: Exception) {
+                            logger.error("删除本地订单失败: orderId=${order.buyOrderId}, copyOrderTrackingId=${order.id}, error=${e.message}", e)
+                        }
+                        continue
+                    }
                     
                     // 获取实际价格和数量
                     val actualPrice = orderDetail.price?.toSafeBigDecimal() ?: order.price

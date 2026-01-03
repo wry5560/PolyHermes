@@ -508,5 +508,33 @@ class AccountController(
         }
     }
 
+    /**
+     * 查询所有账户的交易活动历史
+     */
+    @PostMapping("/activities/list")
+    fun getAllActivities(@RequestBody request: ActivityListRequest): ResponseEntity<ApiResponse<ActivityListResponse>> {
+        return try {
+            val result = runBlocking {
+                accountService.getAllActivities(
+                    accountId = request.accountId,
+                    limit = request.limit,
+                    offset = request.offset
+                )
+            }
+            result.fold(
+                onSuccess = { response ->
+                    ResponseEntity.ok(ApiResponse.success(response))
+                },
+                onFailure = { e ->
+                    logger.error("查询活动历史失败: ${e.message}", e)
+                    ResponseEntity.ok(ApiResponse.error(ErrorCode.SERVER_ERROR, "查询活动历史失败: ${e.message}", messageSource))
+                }
+            )
+        } catch (e: Exception) {
+            logger.error("查询活动历史异常: ${e.message}", e)
+            ResponseEntity.ok(ApiResponse.error(ErrorCode.SERVER_ERROR, "查询活动历史失败: ${e.message}", messageSource))
+        }
+    }
+
 }
 

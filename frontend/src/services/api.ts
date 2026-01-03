@@ -263,9 +263,15 @@ export const apiService = {
     /**
      * 赎回仓位
      */
-    redeemPositions: (data: any) => 
+    redeemPositions: (data: any) =>
       apiClient.post<ApiResponse<any>>('/accounts/positions/redeem', data),
-    
+
+    /**
+     * 查询交易活动历史
+     */
+    activitiesList: (data: { accountId?: number; limit?: number; offset?: number }) =>
+      apiClient.post<ApiResponse<any>>('/accounts/activities/list', data),
+
   },
   
   /**

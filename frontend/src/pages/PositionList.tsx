@@ -10,8 +10,29 @@ import { useWebSocketSubscription } from '../hooks/useWebSocket'
 import { wsManager } from '../services/websocket'
 import { formatUSDC } from '../utils'
 
-type PositionFilter = 'current' | 'historical'
+type PositionFilter = 'current' | 'historical' | 'activities'
 type ViewMode = 'card' | 'list'
+
+// 活动记录类型
+interface AccountActivity {
+  accountId: number
+  accountName: string | null
+  walletAddress: string
+  proxyAddress: string
+  timestamp: number
+  type: string  // TRADE, REDEEM, SPLIT, MERGE, etc.
+  side: string | null  // BUY, SELL
+  marketId: string
+  marketTitle: string | null
+  marketSlug: string | null
+  marketIcon: string | null
+  outcome: string | null
+  outcomeIndex: number | null
+  size: string | null
+  price: string | null
+  usdcSize: string | null
+  transactionHash: string | null
+}
 
 const PositionList: React.FC = () => {
   const navigate = useNavigate()
@@ -40,6 +61,8 @@ const PositionList: React.FC = () => {
   const [redeemableSummary, setRedeemableSummary] = useState<RedeemablePositionsSummary | null>(null)
   const [loadingRedeemableSummary, setLoadingRedeemableSummary] = useState(false)
   const [redeeming, setRedeeming] = useState(false)
+  const [activities, setActivities] = useState<AccountActivity[]>([])
+  const [activitiesLoading, setActivitiesLoading] = useState(false)
   
   useEffect(() => {
     fetchAccounts()
@@ -67,6 +90,32 @@ const PositionList: React.FC = () => {
     }
   }, [currentPositions, selectedAccountId])
   
+  // 当切换到交易历史 TAB 时，获取活动数据
+  useEffect(() => {
+    if (positionFilter === 'activities') {
+      fetchActivities()
+    }
+  }, [positionFilter, selectedAccountId])
+
+  // 获取交易活动历史
+  const fetchActivities = async () => {
+    setActivitiesLoading(true)
+    try {
+      const response = await apiService.accounts.activitiesList({
+        accountId: selectedAccountId,
+        limit: 200
+      })
+      if (response.data.code === 0 && response.data.data) {
+        setActivities(response.data.data.activities || [])
+      }
+    } catch (error: any) {
+      console.error('获取交易活动失败:', error)
+      message.error('获取交易活动失败')
+    } finally {
+      setActivitiesLoading(false)
+    }
+  }
+
   // 获取可赎回仓位统计
   const fetchRedeemableSummary = async () => {
     setLoadingRedeemableSummary(true)
@@ -1218,6 +1267,40 @@ const PositionList: React.FC = () => {
                     </Tag>
                   </span>
               </Radio.Button>
+                <Radio.Button
+                  value="activities"
+                  style={{
+                    border: 'none',
+                    borderRadius: '6px',
+                    padding: '8px 16px',
+                    height: 'auto',
+                    lineHeight: '1.5',
+                    transition: 'all 0.3s ease',
+                    background: positionFilter === 'activities' ? '#1890ff' : 'transparent',
+                    color: positionFilter === 'activities' ? '#fff' : '#666',
+                    fontWeight: positionFilter === 'activities' ? '500' : 'normal',
+                    boxShadow: positionFilter === 'activities' ? '0 2px 4px rgba(24, 144, 255, 0.2)' : 'none'
+                  }}
+                >
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span>交易历史</span>
+                    <Tag
+                      color={positionFilter === 'activities' ? 'default' : 'default'}
+                      style={{
+                        margin: 0,
+                        borderRadius: '10px',
+                        fontSize: '12px',
+                        lineHeight: '20px',
+                        padding: '0 8px',
+                        background: positionFilter === 'activities' ? 'rgba(255, 255, 255, 0.3)' : undefined,
+                        color: positionFilter === 'activities' ? '#fff' : undefined,
+                        border: positionFilter === 'activities' ? 'none' : undefined
+                      }}
+                    >
+                      {activities.length}
+                    </Tag>
+                  </span>
+              </Radio.Button>
             </Radio.Group>
             </div>
             {redeemableSummary && redeemableSummary.totalCount > 0 && (
@@ -1235,8 +1318,8 @@ const PositionList: React.FC = () => {
             )}
           </div>
         </div>
-        {/* 合计信息：开仓价值、当前价值、盈亏、已实现盈亏（基于当前筛选后的仓位） */}
-        {filteredPositions.length > 0 && (
+        {/* 合计信息：开仓价值、当前价值、盈亏、已实现盈亏（基于当前筛选后的仓位，交易历史 TAB 不显示） */}
+        {positionFilter !== 'activities' && filteredPositions.length > 0 && (
           <div
             style={{
               marginTop: '12px',
@@ -1292,12 +1375,136 @@ const PositionList: React.FC = () => {
         )}
       </div>
       
-      {(isMobile || viewMode === 'card') ? (
+      {positionFilter === 'activities' ? (
+        <Card loading={activitiesLoading}>
+          <Table
+            dataSource={activities.filter(a =>
+              !searchKeyword ||
+              a.marketTitle?.toLowerCase().includes(searchKeyword.toLowerCase()) ||
+              a.outcome?.toLowerCase().includes(searchKeyword.toLowerCase())
+            )}
+            columns={[
+              {
+                title: '时间',
+                dataIndex: 'timestamp',
+                key: 'timestamp',
+                width: 160,
+                render: (timestamp: number) => {
+                  const date = new Date(timestamp * 1000)
+                  return date.toLocaleString('zh-CN', {
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                  })
+                }
+              },
+              {
+                title: '类型',
+                dataIndex: 'type',
+                key: 'type',
+                width: 100,
+                render: (type: string, record: AccountActivity) => {
+                  const typeColors: Record<string, string> = {
+                    'TRADE': record.side === 'BUY' ? 'green' : 'red',
+                    'REDEEM': 'gold',
+                    'SPLIT': 'blue',
+                    'MERGE': 'purple'
+                  }
+                  const typeLabels: Record<string, string> = {
+                    'TRADE': record.side === 'BUY' ? '买入' : '卖出',
+                    'REDEEM': '赎回',
+                    'SPLIT': '拆分',
+                    'MERGE': '合并'
+                  }
+                  return <Tag color={typeColors[type] || 'default'}>{typeLabels[type] || type}</Tag>
+                }
+              },
+              {
+                title: '市场',
+                dataIndex: 'marketTitle',
+                key: 'marketTitle',
+                ellipsis: true,
+                render: (title: string, record: AccountActivity) => (
+                  <Space>
+                    {record.marketIcon && (
+                      <img src={record.marketIcon} alt="" style={{ width: 20, height: 20, borderRadius: 4 }} />
+                    )}
+                    <span>{title || record.marketId?.substring(0, 10) + '...'}</span>
+                  </Space>
+                )
+              },
+              {
+                title: '选择',
+                dataIndex: 'outcome',
+                key: 'outcome',
+                width: 100,
+                render: (outcome: string) => outcome || '-'
+              },
+              {
+                title: '数量',
+                dataIndex: 'size',
+                key: 'size',
+                width: 100,
+                align: 'right' as const,
+                render: (size: string) => size ? parseFloat(size).toFixed(2) : '-'
+              },
+              {
+                title: '价格',
+                dataIndex: 'price',
+                key: 'price',
+                width: 80,
+                align: 'right' as const,
+                render: (price: string) => price ? `$${parseFloat(price).toFixed(2)}` : '-'
+              },
+              {
+                title: '金额',
+                dataIndex: 'usdcSize',
+                key: 'usdcSize',
+                width: 100,
+                align: 'right' as const,
+                render: (usdcSize: string) => usdcSize ? `${formatUSDC(usdcSize)} USDC` : '-'
+              },
+              {
+                title: '账户',
+                dataIndex: 'accountName',
+                key: 'accountName',
+                width: 120,
+                render: (name: string, record: AccountActivity) => name || `账户 ${record.accountId}`
+              },
+              {
+                title: '交易哈希',
+                dataIndex: 'transactionHash',
+                key: 'transactionHash',
+                width: 120,
+                render: (hash: string) => hash ? (
+                  <a
+                    href={`https://polygonscan.com/tx/${hash}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: '#1890ff' }}
+                  >
+                    {hash.substring(0, 8)}...
+                  </a>
+                ) : '-'
+              }
+            ]}
+            rowKey={(record, index) => `${record.accountId}-${record.timestamp}-${index}`}
+            pagination={{
+              pageSize: 20,
+              showSizeChanger: !isMobile,
+              showTotal: (total) => `共 ${total} 条记录${searchKeyword ? `（已过滤）` : ''}`
+            }}
+            scroll={isMobile ? { x: 1200 } : undefined}
+          />
+        </Card>
+      ) : (isMobile || viewMode === 'card') ? (
         <Card loading={loading}>
           {renderCardView()}
           {filteredPositions.length > 0 && (
-            <div style={{ 
-              marginTop: '24px', 
+            <div style={{
+              marginTop: '24px',
               textAlign: 'center',
               color: '#999',
               fontSize: '14px'

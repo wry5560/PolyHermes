@@ -761,6 +761,76 @@ class AccountService(
     }
 
     /**
+     * 查询所有账户的交易活动历史
+     * 返回所有账户的交易活动记录
+     */
+    suspend fun getAllActivities(accountId: Long? = null, limit: Int = 100, offset: Int = 0): Result<ActivityListResponse> {
+        return try {
+            val accounts = if (accountId != null) {
+                accountRepository.findById(accountId).map { listOf(it) }.orElse(emptyList())
+            } else {
+                accountRepository.findAll()
+            }
+
+            val allActivities = mutableListOf<AccountActivityDto>()
+
+            // 遍历所有账户，查询每个账户的活动
+            accounts.forEach { account ->
+                if (account.proxyAddress.isNotBlank()) {
+                    try {
+                        val activitiesResult = blockchainService.getActivities(
+                            account.proxyAddress,
+                            limit = limit,
+                            offset = offset
+                        )
+                        if (activitiesResult.isSuccess) {
+                            val activities = activitiesResult.getOrNull() ?: emptyList()
+                            activities.forEach { activity ->
+                                allActivities.add(
+                                    AccountActivityDto(
+                                        accountId = account.id!!,
+                                        accountName = account.accountName,
+                                        walletAddress = account.walletAddress,
+                                        proxyAddress = account.proxyAddress,
+                                        timestamp = activity.timestamp,
+                                        type = activity.type,
+                                        side = activity.side,
+                                        marketId = activity.conditionId,
+                                        marketTitle = activity.title,
+                                        marketSlug = activity.slug,
+                                        marketIcon = activity.icon,
+                                        outcome = activity.outcome,
+                                        outcomeIndex = activity.outcomeIndex,
+                                        size = activity.size?.toString(),
+                                        price = activity.price?.toString(),
+                                        usdcSize = activity.usdcSize?.toString(),
+                                        transactionHash = activity.transactionHash
+                                    )
+                                )
+                            }
+                        }
+                    } catch (e: Exception) {
+                        logger.warn("查询账户 ${account.id} 活动失败: ${e.message}", e)
+                    }
+                }
+            }
+
+            // 按时间戳降序排序
+            allActivities.sortByDescending { it.timestamp }
+
+            Result.success(
+                ActivityListResponse(
+                    activities = allActivities,
+                    total = allActivities.size
+                )
+            )
+        } catch (e: Exception) {
+            logger.error("查询所有活动失败: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
      * 卖出仓位
      */
     suspend fun sellPosition(request: PositionSellRequest): Result<PositionSellResponse> {

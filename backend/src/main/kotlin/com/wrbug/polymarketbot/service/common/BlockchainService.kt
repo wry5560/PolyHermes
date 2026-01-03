@@ -6,6 +6,7 @@ import com.wrbug.polymarketbot.api.JsonRpcRequest
 import com.wrbug.polymarketbot.api.JsonRpcResponse
 import com.wrbug.polymarketbot.api.PolymarketDataApi
 import com.wrbug.polymarketbot.api.PositionResponse
+import com.wrbug.polymarketbot.api.UserActivityResponse
 import com.wrbug.polymarketbot.api.ValueResponse
 import com.wrbug.polymarketbot.util.EthereumUtils
 import com.wrbug.polymarketbot.util.RetrofitFactory
@@ -346,7 +347,36 @@ class BlockchainService(
             Result.failure(e)
         }
     }
-    
+
+    /**
+     * 查询账户交易活动历史
+     * 通过 Polymarket Data API 查询
+     * 文档: https://docs.polymarket.com/api-reference/core/get-user-activity
+     */
+    suspend fun getActivities(proxyWalletAddress: String, limit: Int = 100, offset: Int = 0): Result<List<UserActivityResponse>> {
+        return try {
+            val response = dataApi.getUserActivity(
+                user = proxyWalletAddress,
+                limit = limit,
+                offset = offset,
+                sortBy = "TIMESTAMP",
+                sortDirection = "DESC"
+            )
+
+            if (response.isSuccessful && response.body() != null) {
+                val activities = response.body()!!
+                Result.success(activities)
+            } else {
+                val errorMsg = "Activity API 请求失败: ${response.code()} ${response.message()}"
+                logger.error(errorMsg)
+                Result.failure(Exception(errorMsg))
+            }
+        } catch (e: Exception) {
+            logger.error("查询活动历史失败: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
     /**
      * 从 condition ID 和 outcomeIndex 计算 tokenId
      * 使用链上合约调用计算：

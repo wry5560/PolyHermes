@@ -21,7 +21,10 @@ data class Account(
     
     @Column(name = "proxy_address", nullable = false, length = 42)
     val proxyAddress: String,  // Polymarket 代理钱包地址（从合约获取，必须）
-    
+
+    @Column(name = "wallet_type", nullable = false, length = 20)
+    val walletType: String = "magic",  // 钱包类型: magic（邮箱/OAuth登录）或 safe（MetaMask钱包）
+
     @Column(name = "api_key", length = 500)
     val apiKey: String? = null,  // Polymarket API Key（可选，明文存储）
     

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Modal, Form, Button, message, Radio, InputNumber, Divider, Spin, Select, Input, Space, Switch } from 'antd'
 import { SaveOutlined } from '@ant-design/icons'
 import { apiService } from '../../services/api'
-import type { CopyTrading, CopyTradingUpdateRequest } from '../../types'
+import type { CopyTrading, CopyTradingUpdateRequest, NotificationConfig } from '../../types'
 import { useTranslation } from 'react-i18next'
 
 const { Option } = Select
@@ -27,12 +27,25 @@ const EditModal: React.FC<EditModalProps> = ({
   const [copyTrading, setCopyTrading] = useState<CopyTrading | null>(null)
   const [copyMode, setCopyMode] = useState<'RATIO' | 'FIXED'>('RATIO')
   const [originalEnabled, setOriginalEnabled] = useState<boolean>(true)
-  
+  const [notificationConfigs, setNotificationConfigs] = useState<NotificationConfig[]>([])
+
   useEffect(() => {
     if (open && copyTradingId) {
+      fetchNotificationConfigs()
       fetchCopyTrading(parseInt(copyTradingId))
     }
   }, [open, copyTradingId])
+
+  const fetchNotificationConfigs = async () => {
+    try {
+      const response = await apiService.notifications.list({ type: 'telegram' })
+      if (response.data.code === 0 && response.data.data) {
+        setNotificationConfigs(response.data.data.filter(config => config.enabled))
+      }
+    } catch (error: any) {
+      console.error('获取通知配置列表失败:', error)
+    }
+  }
   
   const fetchCopyTrading = async (copyTradingId: number) => {
     setFetching(true)
@@ -68,7 +81,8 @@ const EditModal: React.FC<EditModalProps> = ({
             maxPositionValue: found.maxPositionValue ? parseFloat(found.maxPositionValue) : undefined,
             maxPositionCount: found.maxPositionCount,
             configName: found.configName || '',
-            pushFailedOrders: found.pushFailedOrders ?? false
+            pushFailedOrders: found.pushFailedOrders ?? false,
+            notificationConfigId: found.notificationConfigId || undefined
           })
         } else {
           message.error(t('copyTradingEdit.fetchFailed') || '跟单配置不存在')
@@ -134,7 +148,8 @@ const EditModal: React.FC<EditModalProps> = ({
         maxPositionValue: values.maxPositionValue?.toString(),
         maxPositionCount: values.maxPositionCount,
         configName: values.configName?.trim() || undefined,
-        pushFailedOrders: values.pushFailedOrders
+        pushFailedOrders: values.pushFailedOrders,
+        notificationConfigId: values.notificationConfigId || undefined
       }
       
       const response = await apiService.copyTrading.update(request)
@@ -488,7 +503,24 @@ const EditModal: React.FC<EditModalProps> = ({
           >
             <Switch />
           </Form.Item>
-          
+
+          <Form.Item
+            label={t('copyTradingEdit.notificationConfig') || '推送通知配置'}
+            name="notificationConfigId"
+            tooltip={t('copyTradingEdit.notificationConfigTooltip') || '选择推送通知的 Telegram 配置。不选择则发送到所有启用的配置'}
+          >
+            <Select
+              placeholder={t('copyTradingEdit.notificationConfigPlaceholder') || '不选择则发送到所有配置'}
+              allowClear
+            >
+              {notificationConfigs.map(config => (
+                <Option key={config.id} value={config.id}>
+                  {config.name}
+                </Option>
+              ))}
+            </Select>
+          </Form.Item>
+
           <Form.Item>
             <Space>
               <Button

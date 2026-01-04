@@ -62,7 +62,10 @@ class CopyTradingTemplateService(
                 minOrderDepth = request.minOrderDepth?.toSafeBigDecimal(),
                 maxSpread = request.maxSpread?.toSafeBigDecimal(),
                 minPrice = request.minPrice?.toSafeBigDecimal(),
-                maxPrice = request.maxPrice?.toSafeBigDecimal()
+                maxPrice = request.maxPrice?.toSafeBigDecimal(),
+                maxPositionValue = request.maxPositionValue?.toSafeBigDecimal(),
+                maxPositionCount = request.maxPositionCount,
+                pushFailedOrders = request.pushFailedOrders ?: false
             )
             
             val saved = templateRepository.save(template)
@@ -121,6 +124,9 @@ class CopyTradingTemplateService(
                 maxSpread = request.maxSpread?.toSafeBigDecimal() ?: template.maxSpread,
                 minPrice = request.minPrice?.toSafeBigDecimal() ?: template.minPrice,
                 maxPrice = request.maxPrice?.toSafeBigDecimal() ?: template.maxPrice,
+                maxPositionValue = request.maxPositionValue?.toSafeBigDecimal() ?: template.maxPositionValue,
+                maxPositionCount = request.maxPositionCount ?: template.maxPositionCount,
+                pushFailedOrders = request.pushFailedOrders ?: template.pushFailedOrders,
                 updatedAt = System.currentTimeMillis()
             )
             
@@ -186,7 +192,10 @@ class CopyTradingTemplateService(
                 minOrderDepth = request.minOrderDepth?.toSafeBigDecimal() ?: sourceTemplate.minOrderDepth,
                 maxSpread = request.maxSpread?.toSafeBigDecimal() ?: sourceTemplate.maxSpread,
                 minPrice = request.minPrice?.toSafeBigDecimal() ?: sourceTemplate.minPrice,
-                maxPrice = request.maxPrice?.toSafeBigDecimal() ?: sourceTemplate.maxPrice
+                maxPrice = request.maxPrice?.toSafeBigDecimal() ?: sourceTemplate.maxPrice,
+                maxPositionValue = request.maxPositionValue?.toSafeBigDecimal() ?: sourceTemplate.maxPositionValue,
+                maxPositionCount = request.maxPositionCount ?: sourceTemplate.maxPositionCount,
+                pushFailedOrders = request.pushFailedOrders ?: sourceTemplate.pushFailedOrders
             )
             
             val saved = templateRepository.save(newTemplate)
@@ -260,6 +269,9 @@ class CopyTradingTemplateService(
             maxSpread = template.maxSpread?.toPlainString(),
             minPrice = template.minPrice?.toPlainString(),
             maxPrice = template.maxPrice?.toPlainString(),
+            maxPositionValue = template.maxPositionValue?.toPlainString(),
+            maxPositionCount = template.maxPositionCount,
+            pushFailedOrders = template.pushFailedOrders,
             createdAt = template.createdAt,
             updatedAt = template.updatedAt
         )

@@ -55,7 +55,10 @@ const TemplateAdd: React.FC = () => {
         minOrderDepth: values.minOrderDepth?.toString(),
         maxSpread: values.maxSpread?.toString(),
         minPrice: values.minPrice?.toString(),
-        maxPrice: values.maxPrice?.toString()
+        maxPrice: values.maxPrice?.toString(),
+        maxPositionValue: values.maxPositionValue?.toString(),
+        maxPositionCount: values.maxPositionCount,
+        pushFailedOrders: values.pushFailedOrders ?? false
       })
       
       if (response.data.code === 0) {
@@ -283,7 +286,7 @@ const TemplateAdd: React.FC = () => {
           </Form.Item>
           
           <Divider>{t('templateAdd.priceRangeFilter') || '价格区间过滤'}</Divider>
-          
+
           <Form.Item
             label={t('templateAdd.priceRange') || '价格区间'}
             name="priceRange"
@@ -313,8 +316,39 @@ const TemplateAdd: React.FC = () => {
               </Form.Item>
             </Input.Group>
           </Form.Item>
-          
-          {/* 跟单卖出 - 表单最底部 */}
+
+          <Divider>{t('templateAdd.positionLimitFilter') || '最大仓位限制'}</Divider>
+
+          <Form.Item
+            label={t('templateAdd.maxPositionValue') || '最大仓位金额 (USDC)'}
+            name="maxPositionValue"
+            tooltip={t('templateAdd.maxPositionValueTooltip') || '限制单个市场的最大仓位金额。如果该市场的当前仓位金额 + 跟单金额超过此限制，则不会下单。不填写则不启用此限制'}
+          >
+            <InputNumber
+              min={0}
+              step={0.0001}
+              precision={4}
+              style={{ width: '100%' }}
+              placeholder={t('templateAdd.maxPositionValuePlaceholder') || '例如：100（可选，不填写表示不启用）'}
+            />
+          </Form.Item>
+
+          <Form.Item
+            label={t('templateAdd.maxPositionCount') || '最大仓位数量'}
+            name="maxPositionCount"
+            tooltip={t('templateAdd.maxPositionCountTooltip') || '限制单个市场的最大仓位数量。如果该市场的当前仓位数量达到或超过此限制，则不会下单。不填写则不启用此限制'}
+          >
+            <InputNumber
+              min={1}
+              step={1}
+              style={{ width: '100%' }}
+              placeholder={t('templateAdd.maxPositionCountPlaceholder') || '例如：10（可选，不填写表示不启用）'}
+            />
+          </Form.Item>
+
+          <Divider>{t('templateAdd.advancedSettings') || '高级设置'}</Divider>
+
+          {/* 跟单卖出 */}
           <Form.Item
             label={t('templateAdd.supportSell') || '跟单卖出'}
             name="supportSell"
@@ -323,7 +357,17 @@ const TemplateAdd: React.FC = () => {
           >
             <Switch />
           </Form.Item>
-          
+
+          {/* 推送失败订单 */}
+          <Form.Item
+            label={t('templateAdd.pushFailedOrders') || '推送失败订单'}
+            name="pushFailedOrders"
+            tooltip={t('templateAdd.pushFailedOrdersTooltip') || '开启后，失败的订单会推送到 Telegram'}
+            valuePropName="checked"
+          >
+            <Switch />
+          </Form.Item>
+
           <Form.Item shouldUpdate>
             {({ getFieldsError }) => {
               const errors = getFieldsError()

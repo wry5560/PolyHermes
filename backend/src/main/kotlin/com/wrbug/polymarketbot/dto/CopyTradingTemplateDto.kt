@@ -23,7 +23,12 @@ data class TemplateCreateRequest(
     val minOrderDepth: String? = null,  // 最小订单深度（USDC金额），NULL表示不启用
     val maxSpread: String? = null,  // 最大价差（绝对价格），NULL表示不启用
     val minPrice: String? = null,  // 最低价格（可选），NULL表示不限制最低价
-    val maxPrice: String? = null  // 最高价格（可选），NULL表示不限制最高价
+    val maxPrice: String? = null,  // 最高价格（可选），NULL表示不限制最高价
+    // 最大仓位配置
+    val maxPositionValue: String? = null,  // 最大仓位金额（USDC），NULL表示不启用
+    val maxPositionCount: Int? = null,  // 最大仓位数量，NULL表示不启用
+    // 通知配置
+    val pushFailedOrders: Boolean? = null  // 推送失败订单（默认关闭）
 )
 
 /**
@@ -50,7 +55,12 @@ data class TemplateUpdateRequest(
     val minOrderDepth: String? = null,  // 最小订单深度（USDC金额），NULL表示不启用
     val maxSpread: String? = null,  // 最大价差（绝对价格），NULL表示不启用
     val minPrice: String? = null,  // 最低价格（可选），NULL表示不限制最低价
-    val maxPrice: String? = null  // 最高价格（可选），NULL表示不限制最高价
+    val maxPrice: String? = null,  // 最高价格（可选），NULL表示不限制最高价
+    // 最大仓位配置
+    val maxPositionValue: String? = null,  // 最大仓位金额（USDC），NULL表示不启用
+    val maxPositionCount: Int? = null,  // 最大仓位数量，NULL表示不启用
+    // 通知配置
+    val pushFailedOrders: Boolean? = null  // 推送失败订单（默认关闭）
 )
 
 /**
@@ -84,7 +94,12 @@ data class TemplateCopyRequest(
     val minOrderDepth: String? = null,  // 最小订单深度（USDC金额），NULL表示不启用
     val maxSpread: String? = null,  // 最大价差（绝对价格），NULL表示不启用
     val minPrice: String? = null,  // 最低价格（可选），NULL表示不限制最低价
-    val maxPrice: String? = null  // 最高价格（可选），NULL表示不限制最高价
+    val maxPrice: String? = null,  // 最高价格（可选），NULL表示不限制最高价
+    // 最大仓位配置
+    val maxPositionValue: String? = null,  // 最大仓位金额（USDC），NULL表示不启用
+    val maxPositionCount: Int? = null,  // 最大仓位数量，NULL表示不启用
+    // 通知配置
+    val pushFailedOrders: Boolean? = null  // 推送失败订单（默认关闭）
 )
 
 /**
@@ -119,6 +134,11 @@ data class TemplateDto(
     val maxSpread: String?,
     val minPrice: String?,  // 最低价格（可选），NULL表示不限制最低价
     val maxPrice: String?,  // 最高价格（可选），NULL表示不限制最高价
+    // 最大仓位配置
+    val maxPositionValue: String?,  // 最大仓位金额（USDC），NULL表示不启用
+    val maxPositionCount: Int?,  // 最大仓位数量，NULL表示不启用
+    // 通知配置
+    val pushFailedOrders: Boolean,  // 推送失败订单
     val createdAt: Long,
     val updatedAt: Long
 )

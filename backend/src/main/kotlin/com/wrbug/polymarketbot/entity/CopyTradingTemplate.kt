@@ -62,19 +62,30 @@ data class CopyTradingTemplate(
     // 过滤条件字段
     @Column(name = "min_order_depth", precision = 20, scale = 8)
     val minOrderDepth: BigDecimal? = null,  // 最小订单深度（USDC金额），NULL表示不启用
-    
+
     @Column(name = "max_spread", precision = 20, scale = 8)
     val maxSpread: BigDecimal? = null,  // 最大价差（绝对价格），NULL表示不启用
-    
+
     @Column(name = "min_price", precision = 20, scale = 8)
     val minPrice: BigDecimal? = null,  // 最低价格（可选），NULL表示不限制最低价
-    
+
     @Column(name = "max_price", precision = 20, scale = 8)
     val maxPrice: BigDecimal? = null,  // 最高价格（可选），NULL表示不限制最高价
-    
+
+    // 最大仓位配置
+    @Column(name = "max_position_value", precision = 20, scale = 8)
+    val maxPositionValue: BigDecimal? = null,  // 最大仓位金额（USDC），NULL表示不启用
+
+    @Column(name = "max_position_count")
+    val maxPositionCount: Int? = null,  // 最大仓位数量，NULL表示不启用
+
+    // 通知配置
+    @Column(name = "push_failed_orders", nullable = false)
+    val pushFailedOrders: Boolean = false,  // 推送失败订单（默认关闭）
+
     @Column(name = "created_at", nullable = false)
     val createdAt: Long = System.currentTimeMillis(),
-    
+
     @Column(name = "updated_at", nullable = false)
     var updatedAt: Long = System.currentTimeMillis()
 )

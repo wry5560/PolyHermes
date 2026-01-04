@@ -721,10 +721,8 @@ class AccountService(
                                 val sizeThreshold = BigDecimal("0.0001")
                                 val isCurrent = size.abs() > sizeThreshold
 
-                                // 调试日志
-                                if (size.abs() <= sizeThreshold && currentValue != BigDecimal.ZERO) {
-                                    logger.debug("账户 ${account.id} 仓位 size≈0 但 currentValue=${currentValue}: market=${pos.title}, size=${pos.size}, curPrice=${pos.curPrice}")
-                                }
+                                // 调试日志：打印每个仓位的关键数据
+                                logger.info("账户 ${account.id} 仓位详情: market=${pos.title?.take(30)}, size=${pos.size}, curPrice=${pos.curPrice}, currentValue=${pos.currentValue}, isCurrent=$isCurrent")
 
                                 // 将 Double 转换为精确的 BigDecimal，保留完整精度
                                 val sizeDecimal = pos.size?.let { 

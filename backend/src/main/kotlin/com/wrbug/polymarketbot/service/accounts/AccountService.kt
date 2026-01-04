@@ -808,6 +808,7 @@ class AccountService(
             val allActivities = mutableListOf<AccountActivityDto>()
 
             // 遍历所有账户，查询每个账户的活动
+            logger.info("查询活动历史: 账户数=${accounts.size}, limit=$limit, offset=$offset")
             accounts.forEach { account ->
                 if (account.proxyAddress.isNotBlank()) {
                     try {
@@ -818,6 +819,7 @@ class AccountService(
                         )
                         if (activitiesResult.isSuccess) {
                             val activities = activitiesResult.getOrNull() ?: emptyList()
+                            logger.info("账户 ${account.id} 活动数: ${activities.size}, 最新时间: ${activities.firstOrNull()?.timestamp}")
                             activities.forEach { activity ->
                                 allActivities.add(
                                     AccountActivityDto(
@@ -850,6 +852,8 @@ class AccountService(
 
             // 按时间戳降序排序
             allActivities.sortByDescending { it.timestamp }
+
+            logger.info("活动历史总数: ${allActivities.size}, 最新时间: ${allActivities.firstOrNull()?.timestamp}")
 
             Result.success(
                 ActivityListResponse(

@@ -713,10 +713,18 @@ class AccountService(
                             positions.forEach { pos ->
                                 val currentValue = pos.currentValue?.toSafeBigDecimal() ?: BigDecimal.ZERO
                                 val curPrice = pos.curPrice?.toSafeBigDecimal() ?: BigDecimal.ZERO
+                                val size = pos.size?.toSafeBigDecimal() ?: BigDecimal.ZERO
 
-                                // 判断是否为当前仓位：currentValue != 0 且 curPrice != 0
-                                // 使用 eq 方法判断值是否等于 0
-                                val isCurrent = !currentValue.eq(BigDecimal.ZERO) && !curPrice.eq(BigDecimal.ZERO)
+                                // 判断是否为当前仓位：size > 0.0001（有实际持仓）
+                                // 之前的逻辑 currentValue != 0 && curPrice != 0 不准确
+                                // 因为 curPrice 是市场价格，只要市场存在就不为 0
+                                val sizeThreshold = BigDecimal("0.0001")
+                                val isCurrent = size.abs() > sizeThreshold
+
+                                // 调试日志
+                                if (size.abs() <= sizeThreshold && currentValue != BigDecimal.ZERO) {
+                                    logger.debug("账户 ${account.id} 仓位 size≈0 但 currentValue=${currentValue}: market=${pos.title}, size=${pos.size}, curPrice=${pos.curPrice}")
+                                }
 
                                 // 将 Double 转换为精确的 BigDecimal，保留完整精度
                                 val sizeDecimal = pos.size?.let { 

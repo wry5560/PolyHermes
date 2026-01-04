@@ -58,6 +58,7 @@ const TemplateAdd: React.FC = () => {
         maxPrice: values.maxPrice?.toString(),
         maxPositionValue: values.maxPositionValue?.toString(),
         maxPositionCount: values.maxPositionCount,
+        delaySeconds: values.delaySeconds,
         pushFailedOrders: values.pushFailedOrders ?? false
       })
       
@@ -99,6 +100,7 @@ const TemplateAdd: React.FC = () => {
             minOrderSize: 1,
             maxDailyOrders: 100,
             priceTolerance: 5,
+            delaySeconds: 0,
             supportSell: true
           }}
         >
@@ -347,6 +349,20 @@ const TemplateAdd: React.FC = () => {
           </Form.Item>
 
           <Divider>{t('templateAdd.advancedSettings') || '高级设置'}</Divider>
+
+          {/* 跟单延迟 */}
+          <Form.Item
+            label={t('templateAdd.delaySeconds') || '跟单延迟 (秒)'}
+            name="delaySeconds"
+            tooltip={t('templateAdd.delaySecondsTooltip') || '跟单延迟时间，0 表示立即跟单'}
+          >
+            <InputNumber
+              min={0}
+              step={1}
+              style={{ width: '100%' }}
+              placeholder={t('templateAdd.delaySecondsPlaceholder') || '默认 0（立即跟单）'}
+            />
+          </Form.Item>
 
           {/* 跟单卖出 */}
           <Form.Item

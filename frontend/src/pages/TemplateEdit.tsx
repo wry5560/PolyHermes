@@ -44,6 +44,7 @@ const TemplateEdit: React.FC = () => {
           maxPrice: template.maxPrice ? parseFloat(template.maxPrice) : undefined,
           maxPositionValue: (template as any).maxPositionValue ? parseFloat((template as any).maxPositionValue) : undefined,
           maxPositionCount: (template as any).maxPositionCount,
+          delaySeconds: (template as any).delaySeconds ?? 0,
           pushFailedOrders: (template as any).pushFailedOrders ?? false
         })
       } else {
@@ -105,6 +106,7 @@ const TemplateEdit: React.FC = () => {
         maxPrice: values.maxPrice?.toString(),
         maxPositionValue: values.maxPositionValue?.toString(),
         maxPositionCount: values.maxPositionCount,
+        delaySeconds: values.delaySeconds,
         pushFailedOrders: values.pushFailedOrders ?? false
       })
       
@@ -386,6 +388,20 @@ const TemplateEdit: React.FC = () => {
           </Form.Item>
 
           <Divider>{t('templateEdit.advancedSettings') || '高级设置'}</Divider>
+
+          {/* 跟单延迟 */}
+          <Form.Item
+            label={t('templateEdit.delaySeconds') || '跟单延迟 (秒)'}
+            name="delaySeconds"
+            tooltip={t('templateEdit.delaySecondsTooltip') || '跟单延迟时间，0 表示立即跟单'}
+          >
+            <InputNumber
+              min={0}
+              step={1}
+              style={{ width: '100%' }}
+              placeholder={t('templateEdit.delaySecondsPlaceholder') || '默认 0（立即跟单）'}
+            />
+          </Form.Item>
 
           {/* 跟单卖出 */}
           <Form.Item

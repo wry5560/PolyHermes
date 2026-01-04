@@ -55,7 +55,8 @@ trap cleanup SIGTERM SIGINT
 # 启动后端服务（以 appuser 用户运行，后台运行）
 echo "启动后端服务..."
 # 自动使用系统时区
-java -jar /app/app.jar --spring.profiles.active=${SPRING_PROFILES_ACTIVE:-prod} &
+# JAVA_OPTS 环境变量可用于配置 JVM 参数（如 -Xmx2g -Xms1g）
+java ${JAVA_OPTS:-} -jar /app/app.jar --spring.profiles.active=${SPRING_PROFILES_ACTIVE:-prod} &
 BACKEND_PID=$!
 
 # 等待后端服务启动

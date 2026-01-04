@@ -311,7 +311,8 @@ class AccountService(
     fun getAccountList(): Result<AccountListResponse> {
         return try {
             val accounts = accountRepository.findAllByOrderByCreatedAtAsc()
-            val accountDtos = accounts.map { toDto(it) }
+            // 使用基础版本 DTO，不查询统计数据，快速响应
+            val accountDtos = accounts.map { toDtoBasic(it) }
 
             Result.success(
                 AccountListResponse(
@@ -432,8 +433,31 @@ class AccountService(
     }
 
     /**
+     * 转换为 DTO（基础版本，不包含统计数据）
+     * 用于账户列表等需要快速响应的场景
+     */
+    private fun toDtoBasic(account: Account): AccountDto {
+        return AccountDto(
+            id = account.id!!,
+            walletAddress = account.walletAddress,
+            proxyAddress = account.proxyAddress,
+            accountName = account.accountName,
+            isEnabled = account.isEnabled,
+            apiKeyConfigured = account.apiKey != null,
+            apiSecretConfigured = account.apiSecret != null,
+            apiPassphraseConfigured = account.apiPassphrase != null,
+            totalOrders = null,
+            totalPnl = null,
+            activeOrders = null,
+            completedOrders = null,
+            positionCount = null
+        )
+    }
+
+    /**
      * 转换为 DTO
      * 包含交易统计数据（总订单数、总盈亏、活跃订单数、已完成订单数、持仓数量）
+     * 注意：此方法会发起多个外部 API 调用，较慢，仅用于账户详情等场景
      */
     private fun toDto(account: Account): AccountDto {
         return runBlocking {

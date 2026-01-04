@@ -77,7 +77,8 @@ class TelegramNotificationService(
         walletAddressForApi: String? = null,
         locale: java.util.Locale? = null,
         leaderName: String? = null,  // Leader 名称（备注）
-        configName: String? = null  // 跟单配置名
+        configName: String? = null,  // 跟单配置名
+        notificationConfigId: Long? = null  // 通知配置ID，NULL表示发送给所有启用的配置
     ) {
         // 获取语言设置（优先使用传入的 locale，否则从 LocaleContextHolder 获取）
         val currentLocale = locale ?: try {
@@ -152,7 +153,7 @@ class TelegramNotificationService(
             leaderName = leaderName,
             configName = configName
         )
-        sendMessage(message)
+        sendMessageToConfig(notificationConfigId, message)
     }
 
     /**
@@ -170,7 +171,8 @@ class TelegramNotificationService(
         errorMessage: String,  // 只传递后端返回的 msg，不传递完整堆栈
         accountName: String? = null,
         walletAddress: String? = null,
-        locale: java.util.Locale? = null
+        locale: java.util.Locale? = null,
+        notificationConfigId: Long? = null  // 通知配置ID，NULL表示发送给所有启用的配置
     ) {
         // 获取语言设置（优先使用传入的 locale，否则从 LocaleContextHolder 获取）
         val currentLocale = locale ?: try {
@@ -179,7 +181,7 @@ class TelegramNotificationService(
             logger.warn("获取语言设置失败，使用默认语言: ${e.message}", e)
             java.util.Locale("zh", "CN")  // 默认简体中文
         }
-        
+
         // 计算订单金额 = price × size（USDC）
         val amount = try {
             val priceDecimal = price.toSafeBigDecimal()
@@ -204,7 +206,7 @@ class TelegramNotificationService(
             walletAddress = walletAddress,
             locale = currentLocale
         )
-        sendMessage(message)
+        sendMessageToConfig(notificationConfigId, message)
     }
 
     /**
@@ -223,7 +225,8 @@ class TelegramNotificationService(
         filterType: String,  // 过滤类型
         accountName: String? = null,
         walletAddress: String? = null,
-        locale: java.util.Locale? = null
+        locale: java.util.Locale? = null,
+        notificationConfigId: Long? = null  // 通知配置ID，NULL表示发送给所有启用的配置
     ) {
         // 获取语言设置（优先使用传入的 locale，否则从 LocaleContextHolder 获取）
         val currentLocale = locale ?: try {
@@ -232,7 +235,7 @@ class TelegramNotificationService(
             logger.warn("获取语言设置失败，使用默认语言: ${e.message}", e)
             java.util.Locale("zh", "CN")  // 默认简体中文
         }
-        
+
         // 计算订单金额 = price × size（USDC）
         val amount = try {
             val priceDecimal = price.toSafeBigDecimal()
@@ -258,7 +261,7 @@ class TelegramNotificationService(
             walletAddress = walletAddress,
             locale = currentLocale
         )
-        sendMessage(message)
+        sendMessageToConfig(notificationConfigId, message)
     }
 
     /**
@@ -425,10 +428,38 @@ class TelegramNotificationService(
      * 公共方法，供其他服务调用
      */
     suspend fun sendMessage(message: String) {
+        sendMessageToConfig(null, message)
+    }
+
+    /**
+     * 发送消息到指定的通知配置
+     * @param notificationConfigId 通知配置ID，如果为 null 则发送给所有启用的 Telegram 配置
+     * @param message 要发送的消息
+     */
+    suspend fun sendMessageToConfig(notificationConfigId: Long?, message: String) {
         try {
-            val configs = notificationConfigService.getEnabledConfigsByType("telegram")
+            val configs = if (notificationConfigId != null) {
+                // 发送给指定的配置
+                val config = notificationConfigService.getConfigById(notificationConfigId)
+                if (config == null) {
+                    logger.warn("通知配置不存在: configId=$notificationConfigId，回退到发送给所有配置")
+                    notificationConfigService.getEnabledConfigsByType("telegram")
+                } else if (!config.enabled) {
+                    logger.warn("通知配置未启用: configId=$notificationConfigId，跳过发送")
+                    return
+                } else if (config.type != "telegram") {
+                    logger.warn("通知配置类型不是 Telegram: configId=$notificationConfigId, type=${config.type}，跳过发送")
+                    return
+                } else {
+                    listOf(config)
+                }
+            } else {
+                // 发送给所有启用的配置
+                notificationConfigService.getEnabledConfigsByType("telegram")
+            }
+
             if (configs.isEmpty()) {
-                logger.debug("没有启用的 Telegram 配置，跳过发送消息")
+                logger.debug("没有可用的 Telegram 配置，跳过发送消息")
                 return
             }
 

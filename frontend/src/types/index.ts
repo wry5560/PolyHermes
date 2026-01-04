@@ -211,6 +211,8 @@ export interface CopyTrading {
   // 新增配置字段
   configName?: string  // 配置名（可选，但提供时必须非空）
   pushFailedOrders: boolean  // 推送失败订单（默认关闭）
+  notificationConfigId?: number  // 通知配置ID，NULL表示发送到所有启用的配置
+  notificationConfigName?: string  // 通知配置名称（用于显示）
   createdAt: number
   updatedAt: number
 }
@@ -257,6 +259,7 @@ export interface CopyTradingCreateRequest {
   // 新增配置字段
   configName?: string  // 配置名（可选，但提供时必须非空）
   pushFailedOrders?: boolean  // 推送失败订单（可选）
+  notificationConfigId?: number  // 通知配置ID，NULL表示发送到所有启用的配置
 }
 
 /**
@@ -291,6 +294,7 @@ export interface CopyTradingUpdateRequest {
   // 新增配置字段
   configName?: string  // 配置名（可选，但提供时必须非空）
   pushFailedOrders?: boolean  // 推送失败订单（可选）
+  notificationConfigId?: number  // 通知配置ID，NULL表示发送到所有启用的配置
 }
 
 /**

@@ -776,9 +776,10 @@ class OrderStatusUpdateService(
                 walletAddressForApi = finalAccount.walletAddress,
                 locale = locale,
                 leaderName = leaderName,
-                configName = configName
+                configName = configName,
+                notificationConfigId = finalCopyTrading.notificationConfigId
             )
-            
+
             logger.info("买入订单通知已发送: orderId=${order.buyOrderId}, copyTradingId=${order.copyTradingId}")
         } catch (e: Exception) {
             logger.warn("发送买入订单通知失败: orderId=${order.buyOrderId}, error=${e.message}", e)
@@ -881,9 +882,10 @@ class OrderStatusUpdateService(
                 walletAddressForApi = finalAccount.walletAddress,
                 locale = locale,
                 leaderName = leaderName,
-                configName = configName
+                configName = configName,
+                notificationConfigId = finalCopyTrading.notificationConfigId
             )
-            
+
             logger.info("卖出订单通知已发送: orderId=${record.sellOrderId}, copyTradingId=${record.copyTradingId}")
         } catch (e: Exception) {
             logger.warn("发送卖出订单通知失败: orderId=${record.sellOrderId}, error=${e.message}", e)

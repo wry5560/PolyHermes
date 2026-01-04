@@ -8,6 +8,7 @@ import com.wrbug.polymarketbot.repository.AccountRepository
 import com.wrbug.polymarketbot.repository.CopyTradingRepository
 import com.wrbug.polymarketbot.repository.CopyTradingTemplateRepository
 import com.wrbug.polymarketbot.repository.LeaderRepository
+import com.wrbug.polymarketbot.repository.NotificationConfigRepository
 import com.wrbug.polymarketbot.service.copytrading.monitor.CopyTradingMonitorService
 import com.wrbug.polymarketbot.util.toSafeBigDecimal
 import org.slf4j.LoggerFactory
@@ -24,6 +25,7 @@ class CopyTradingService(
     private val accountRepository: AccountRepository,
     private val templateRepository: CopyTradingTemplateRepository,
     private val leaderRepository: LeaderRepository,
+    private val notificationConfigRepository: NotificationConfigRepository,
     private val monitorService: CopyTradingMonitorService
 ) {
     
@@ -146,7 +148,8 @@ class CopyTradingService(
                 maxPositionValue = config.maxPositionValue,
                 maxPositionCount = config.maxPositionCount,
                 configName = configName,
-                pushFailedOrders = request.pushFailedOrders ?: false
+                pushFailedOrders = request.pushFailedOrders ?: false,
+                notificationConfigId = request.notificationConfigId
             )
             
             val saved = copyTradingRepository.save(copyTrading)
@@ -215,6 +218,7 @@ class CopyTradingService(
                 maxPositionCount = request.maxPositionCount ?: copyTrading.maxPositionCount,
                 configName = configName,
                 pushFailedOrders = request.pushFailedOrders ?: copyTrading.pushFailedOrders,
+                notificationConfigId = request.notificationConfigId ?: copyTrading.notificationConfigId,
                 updatedAt = System.currentTimeMillis()
             )
             
@@ -426,6 +430,10 @@ class CopyTradingService(
             maxPositionCount = copyTrading.maxPositionCount,
             configName = copyTrading.configName,
             pushFailedOrders = copyTrading.pushFailedOrders,
+            notificationConfigId = copyTrading.notificationConfigId,
+            notificationConfigName = copyTrading.notificationConfigId?.let { configId ->
+                notificationConfigRepository.findById(configId).orElse(null)?.name
+            },
             createdAt = copyTrading.createdAt,
             updatedAt = copyTrading.updatedAt
         )

@@ -39,7 +39,8 @@ data class CopyTradingCreateRequest(
     val maxPositionCount: Int? = null,  // 最大仓位数量，NULL表示不启用
     // 新增配置字段
     val configName: String? = null,  // 配置名（可选）
-    val pushFailedOrders: Boolean? = null  // 推送失败订单（可选）
+    val pushFailedOrders: Boolean? = null,  // 推送失败订单（可选）
+    val notificationConfigId: Long? = null  // 通知配置ID（可选），NULL表示发送到所有启用的配置
 )
 
 /**
@@ -73,7 +74,8 @@ data class CopyTradingUpdateRequest(
     val maxPositionCount: Int? = null,  // 最大仓位数量，NULL表示不启用
     // 新增配置字段
     val configName: String? = null,  // 配置名（可选，但提供时必须非空）
-    val pushFailedOrders: Boolean? = null  // 推送失败订单（可选）
+    val pushFailedOrders: Boolean? = null,  // 推送失败订单（可选）
+    val notificationConfigId: Long? = null  // 通知配置ID（可选），NULL表示发送到所有启用的配置
 )
 
 /**
@@ -145,6 +147,8 @@ data class CopyTradingDto(
     // 新增配置字段
     val configName: String? = null,  // 配置名（可选）
     val pushFailedOrders: Boolean = false,  // 推送失败订单（默认关闭）
+    val notificationConfigId: Long? = null,  // 通知配置ID，NULL表示发送到所有启用的配置
+    val notificationConfigName: String? = null,  // 通知配置名称（用于显示）
     val createdAt: Long,
     val updatedAt: Long
 )

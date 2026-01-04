@@ -356,7 +356,8 @@ open class CopyOrderTrackingService(
                                     filterType = filterType,
                                     accountName = account.accountName,
                                     walletAddress = account.walletAddress,
-                                    locale = locale
+                                    locale = locale,
+                                    notificationConfigId = copyTrading.notificationConfigId
                                 )
                             } catch (e: Exception) {
                                 logger.error("处理被过滤订单通知失败: ${e.message}", e)
@@ -528,7 +529,8 @@ open class CopyOrderTrackingService(
                                         errorMessage = exception?.message.orEmpty(),  // 只传递后端返回的 msg
                                         accountName = account.accountName,
                                         walletAddress = account.walletAddress,
-                                        locale = locale
+                                        locale = locale,
+                                        notificationConfigId = copyTrading.notificationConfigId
                                     )
                                 } catch (e: Exception) {
                                     logger.warn("发送订单失败通知失败: ${e.message}", e)

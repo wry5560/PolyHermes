@@ -97,7 +97,10 @@ data class CopyTrading(
     
     @Column(name = "push_failed_orders", nullable = false)
     val pushFailedOrders: Boolean = false,  // 推送失败订单（默认关闭）
-    
+
+    @Column(name = "notification_config_id")
+    val notificationConfigId: Long? = null,  // 通知配置ID，NULL表示发送到所有启用的配置
+
     @Column(name = "created_at", nullable = false)
     val createdAt: Long = System.currentTimeMillis(),
     

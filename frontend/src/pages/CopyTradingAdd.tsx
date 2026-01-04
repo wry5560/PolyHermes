@@ -4,7 +4,7 @@ import { Card, Form, Button, Switch, message, Typography, Space, Radio, InputNum
 import { ArrowLeftOutlined, SaveOutlined, FileTextOutlined, PlusOutlined } from '@ant-design/icons'
 import { apiService } from '../services/api'
 import { useAccountStore } from '../store/accountStore'
-import type { Leader, CopyTradingTemplate, CopyTradingCreateRequest } from '../types'
+import type { Leader, CopyTradingTemplate, CopyTradingCreateRequest, NotificationConfig } from '../types'
 import { formatUSDC } from '../utils'
 import { useTranslation } from 'react-i18next'
 import { useMediaQuery } from 'react-responsive'
@@ -23,6 +23,7 @@ const CopyTradingAdd: React.FC = () => {
   const [loading, setLoading] = useState(false)
   const [leaders, setLeaders] = useState<Leader[]>([])
   const [templates, setTemplates] = useState<CopyTradingTemplate[]>([])
+  const [notificationConfigs, setNotificationConfigs] = useState<NotificationConfig[]>([])
   const [templateModalVisible, setTemplateModalVisible] = useState(false)
   const [copyMode, setCopyMode] = useState<'RATIO' | 'FIXED'>('RATIO')
   
@@ -55,7 +56,8 @@ const CopyTradingAdd: React.FC = () => {
     fetchAccounts()
     fetchLeaders()
     fetchTemplates()
-    
+    fetchNotificationConfigs()
+
     // 生成默认配置名
     const defaultConfigName = generateDefaultConfigName()
     form.setFieldsValue({ configName: defaultConfigName })
@@ -80,6 +82,18 @@ const CopyTradingAdd: React.FC = () => {
       }
     } catch (error: any) {
       message.error(error.message || t('copyTradingAdd.fetchTemplateFailed') || '获取模板列表失败')
+    }
+  }
+
+  const fetchNotificationConfigs = async () => {
+    try {
+      const response = await apiService.notifications.list({ type: 'telegram' })
+      if (response.data.code === 0 && response.data.data) {
+        // 只显示启用的配置
+        setNotificationConfigs(response.data.data.filter(config => config.enabled))
+      }
+    } catch (error: any) {
+      console.error('获取通知配置列表失败:', error)
     }
   }
   
@@ -181,7 +195,8 @@ const CopyTradingAdd: React.FC = () => {
         maxPositionValue: values.maxPositionValue?.toString(),
         maxPositionCount: values.maxPositionCount,
         configName: values.configName?.trim(),
-        pushFailedOrders: values.pushFailedOrders ?? false
+        pushFailedOrders: values.pushFailedOrders ?? false,
+        notificationConfigId: values.notificationConfigId || undefined
       }
       
       const response = await apiService.copyTrading.create(request)
@@ -597,7 +612,25 @@ const CopyTradingAdd: React.FC = () => {
           >
             <Switch />
           </Form.Item>
-          
+
+          {/* 通知配置选择 */}
+          <Form.Item
+            label={t('copyTradingAdd.notificationConfig') || '推送通知配置'}
+            name="notificationConfigId"
+            tooltip={t('copyTradingAdd.notificationConfigTooltip') || '选择推送通知的 Telegram 配置。不选择则发送到所有启用的配置'}
+          >
+            <Select
+              placeholder={t('copyTradingAdd.notificationConfigPlaceholder') || '不选择则发送到所有配置'}
+              allowClear
+            >
+              {notificationConfigs.map(config => (
+                <Option key={config.id} value={config.id}>
+                  {config.name}
+                </Option>
+              ))}
+            </Select>
+          </Form.Item>
+
           <Form.Item>
             <Space>
               <Button

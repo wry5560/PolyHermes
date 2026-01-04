@@ -148,9 +148,9 @@ class OrderStatusUpdateService(
         try {
             // 计算30秒前的时间戳
             val thirtySecondsAgo = System.currentTimeMillis() - 30000
-            
-            // 查询30秒前创建的订单
-            val ordersToCheck = copyOrderTrackingRepository.findByCreatedAtBefore(thirtySecondsAgo)
+
+            // 查询30秒前创建且未发送通知的订单（只检查未处理的订单，避免重复查询）
+            val ordersToCheck = copyOrderTrackingRepository.findByCreatedAtBeforeAndNotificationSentFalse(thirtySecondsAgo)
             
             if (ordersToCheck.isEmpty()) {
                 return

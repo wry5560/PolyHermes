@@ -15,6 +15,16 @@ interface SellMatchDetailRepository : JpaRepository<SellMatchDetail, Long> {
      * 根据匹配记录ID查询所有明细
      */
     fun findByMatchRecordId(matchRecordId: Long): List<SellMatchDetail>
+
+    /**
+     * 根据多个匹配记录ID批量查询所有明细（避免 N+1 查询）
+     */
+    fun findByMatchRecordIdIn(matchRecordIds: Collection<Long>): List<SellMatchDetail>
+
+    /**
+     * 根据多个匹配记录ID批量删除所有明细（避免 N+1 查询）
+     */
+    fun deleteByMatchRecordIdIn(matchRecordIds: Collection<Long>)
     
     /**
      * 根据跟踪ID查询所有明细

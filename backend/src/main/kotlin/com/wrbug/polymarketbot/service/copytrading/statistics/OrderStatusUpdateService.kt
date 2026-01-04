@@ -92,40 +92,46 @@ class OrderStatusUpdateService(
     
     /**
      * 清理已删除账户的订单
+     * 优化：使用批量查询避免 N+1 问题
      */
     @Transactional
     private suspend fun cleanupDeletedAccountOrders() {
         try {
-            // 查询所有卖出记录
-            val allRecords = sellMatchRecordRepository.findAll()
-            
-            // 查询所有有效的账户ID
+            // 1. 批量查询所有有效的账户ID
             val validAccountIds = accountRepository.findAll().mapNotNull { it.id }.toSet()
-            
-            // 查询所有有效的跟单关系
-            val validCopyTradingIds = copyTradingRepository.findAll()
+
+            // 2. 批量查询所有跟单关系并建立映射（避免 N+1 查询）
+            val copyTradingMap = copyTradingRepository.findAll().associateBy { it.id }
+
+            // 3. 计算有效的跟单关系ID（账户存在的跟单关系）
+            val validCopyTradingIds = copyTradingMap.values
                 .filter { it.accountId in validAccountIds }
                 .mapNotNull { it.id }
                 .toSet()
-            
-            // 找出需要删除的记录（关联的跟单关系已不存在或账户已删除）
+
+            // 4. 查询所有卖出记录
+            val allRecords = sellMatchRecordRepository.findAll()
+
+            // 5. 使用内存中的 Map 过滤，避免 N+1 查询
             val recordsToDelete = allRecords.filter { record ->
-                val copyTrading = copyTradingRepository.findById(record.copyTradingId).orElse(null)
+                val copyTrading = copyTradingMap[record.copyTradingId]
                 copyTrading == null || copyTrading.accountId !in validAccountIds
             }
-            
+
             if (recordsToDelete.isNotEmpty()) {
                 logger.info("清理已删除账户的订单: ${recordsToDelete.size} 条记录")
-                
-                // 删除匹配明细
-                for (record in recordsToDelete) {
-                    val details = sellMatchDetailRepository.findByMatchRecordId(record.id!!)
-                    sellMatchDetailRepository.deleteAll(details)
+
+                // 6. 批量获取所有需要删除的记录ID
+                val recordIdsToDelete = recordsToDelete.mapNotNull { it.id }
+
+                // 7. 使用单条 SQL 批量删除匹配明细（避免 N+1 查询）
+                if (recordIdsToDelete.isNotEmpty()) {
+                    sellMatchDetailRepository.deleteByMatchRecordIdIn(recordIdsToDelete)
                 }
-                
-                // 删除卖出记录
+
+                // 8. 批量删除卖出记录
                 sellMatchRecordRepository.deleteAll(recordsToDelete)
-                
+
                 logger.info("已清理 ${recordsToDelete.size} 条已删除账户的订单记录")
             }
         } catch (e: Exception) {

@@ -172,6 +172,8 @@ class TelegramNotificationService(
         accountName: String? = null,
         walletAddress: String? = null,
         locale: java.util.Locale? = null,
+        leaderName: String? = null,  // Leader 名称（备注）
+        configName: String? = null,  // 跟单配置名
         notificationConfigId: Long? = null  // 通知配置ID，NULL表示发送给所有启用的配置
     ) {
         // 获取语言设置（优先使用传入的 locale，否则从 LocaleContextHolder 获取）
@@ -204,7 +206,9 @@ class TelegramNotificationService(
             errorMessage = errorMessage,
             accountName = accountName,
             walletAddress = walletAddress,
-            locale = currentLocale
+            locale = currentLocale,
+            leaderName = leaderName,
+            configName = configName
         )
         sendMessageToConfig(notificationConfigId, message)
     }
@@ -226,6 +230,8 @@ class TelegramNotificationService(
         accountName: String? = null,
         walletAddress: String? = null,
         locale: java.util.Locale? = null,
+        leaderName: String? = null,  // Leader 名称（备注）
+        configName: String? = null,  // 跟单配置名
         notificationConfigId: Long? = null  // 通知配置ID，NULL表示发送给所有启用的配置
     ) {
         // 获取语言设置（优先使用传入的 locale，否则从 LocaleContextHolder 获取）
@@ -259,7 +265,9 @@ class TelegramNotificationService(
             filterType = filterType,
             accountName = accountName,
             walletAddress = walletAddress,
-            locale = currentLocale
+            locale = currentLocale,
+            leaderName = leaderName,
+            configName = configName
         )
         sendMessageToConfig(notificationConfigId, message)
     }
@@ -280,7 +288,9 @@ class TelegramNotificationService(
         filterType: String,
         accountName: String?,
         walletAddress: String?,
-        locale: java.util.Locale
+        locale: java.util.Locale,
+        leaderName: String? = null,  // Leader 名称（备注）
+        configName: String? = null  // 跟单配置名
     ): String {
         
         // 获取多语言文本
@@ -319,12 +329,31 @@ class TelegramNotificationService(
         // 构建账户信息（格式：账户名(钱包地址)）
         val accountInfo = buildAccountInfo(accountName, walletAddress, unknownAccount)
 
+        // 构建跟单信息（如果有）
+        val copyTradingInfo = mutableListOf<String>()
+        if (!configName.isNullOrBlank()) {
+            copyTradingInfo.add("配置: ${configName!!}")
+        }
+        if (!leaderName.isNullOrBlank()) {
+            copyTradingInfo.add("Leader: ${leaderName!!}")
+        }
+        val copyTradingInfoText = if (copyTradingInfo.isNotEmpty()) {
+            "\n• 跟单: ${copyTradingInfo.joinToString(", ")}"
+        } else {
+            ""
+        }
+
         val time = DateUtils.formatDateTime()
 
         // 转义 HTML 特殊字符
         val escapedMarketTitle = marketTitle.replace("<", "&lt;").replace(">", "&gt;")
         val escapedAccountInfo = accountInfo.replace("<", "&lt;").replace(">", "&gt;")
         val escapedFilterReason = filterReason.replace("<", "&lt;").replace(">", "&gt;")
+        val escapedCopyTradingInfo = if (copyTradingInfoText.isNotEmpty()) {
+            copyTradingInfoText.replace("<", "&lt;").replace(">", "&gt;")
+        } else {
+            ""
+        }
 
         // 格式化金额显示
         val amountDisplay = if (amount != null) {
@@ -381,7 +410,7 @@ class TelegramNotificationService(
 • $priceLabel: <code>$priceDisplay</code>
 • $quantityLabel: <code>$sizeDisplay</code> shares
 • $amountLabel: <code>$amountDisplay</code> USDC
-• $accountLabel: $escapedAccountInfo
+• $accountLabel: $escapedAccountInfo$escapedCopyTradingInfo
 
 ⚠️ <b>$filterTypeLabel：</b> <code>$filterTypeDisplay</code>
 
@@ -821,7 +850,9 @@ class TelegramNotificationService(
         errorMessage: String,
         accountName: String?,
         walletAddress: String?,
-        locale: java.util.Locale
+        locale: java.util.Locale,
+        leaderName: String? = null,  // Leader 名称（备注）
+        configName: String? = null  // 跟单配置名
     ): String {
         
         // 获取多语言文本
@@ -849,6 +880,20 @@ class TelegramNotificationService(
         // 构建账户信息（格式：账户名(钱包地址)）
         val accountInfo = buildAccountInfo(accountName, walletAddress, unknownAccount)
 
+        // 构建跟单信息（如果有）
+        val copyTradingInfo = mutableListOf<String>()
+        if (!configName.isNullOrBlank()) {
+            copyTradingInfo.add("配置: ${configName!!}")
+        }
+        if (!leaderName.isNullOrBlank()) {
+            copyTradingInfo.add("Leader: ${leaderName!!}")
+        }
+        val copyTradingInfoText = if (copyTradingInfo.isNotEmpty()) {
+            "\n• 跟单: ${copyTradingInfo.joinToString(", ")}"
+        } else {
+            ""
+        }
+
         val time = DateUtils.formatDateTime()
 
         // 错误信息已经是后端返回的 msg，不需要截断（但为了安全，限制长度）
@@ -862,6 +907,11 @@ class TelegramNotificationService(
         val escapedMarketTitle = marketTitle.replace("<", "&lt;").replace(">", "&gt;")
         val escapedAccountInfo = accountInfo.replace("<", "&lt;").replace(">", "&gt;")
         val escapedErrorMessage = shortErrorMessage.replace("<", "&lt;").replace(">", "&gt;")
+        val escapedCopyTradingInfo = if (copyTradingInfoText.isNotEmpty()) {
+            copyTradingInfoText.replace("<", "&lt;").replace(">", "&gt;")
+        } else {
+            ""
+        }
 
         // 格式化金额显示
         val amountDisplay = if (amount != null) {
@@ -918,7 +968,7 @@ class TelegramNotificationService(
 • $priceLabel: <code>$priceDisplay</code>
 • $quantityLabel: <code>$sizeDisplay</code> shares
 • $amountLabel: <code>$amountDisplay</code> USDC
-• $accountLabel: $escapedAccountInfo
+• $accountLabel: $escapedAccountInfo$escapedCopyTradingInfo
 
 ⚠️ <b>$errorInfo：</b>
 <code>$escapedErrorMessage</code>

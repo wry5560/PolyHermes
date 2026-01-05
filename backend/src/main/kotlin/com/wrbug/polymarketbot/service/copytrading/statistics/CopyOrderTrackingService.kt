@@ -344,6 +344,11 @@ open class CopyOrderTrackingService(
                                     java.util.Locale("zh", "CN")  // 默认简体中文
                                 }
 
+                                // 获取 Leader 和跟单配置信息
+                                val leader = leaderRepository.findById(copyTrading.leaderId).orElse(null)
+                                val leaderName = leader?.leaderName
+                                val configName = copyTrading.configName
+
                                 telegramNotificationService?.sendOrderFilteredNotification(
                                     marketTitle = marketTitle,
                                     marketId = trade.market,
@@ -357,6 +362,8 @@ open class CopyOrderTrackingService(
                                     accountName = account.accountName,
                                     walletAddress = account.walletAddress,
                                     locale = locale,
+                                    leaderName = leaderName,
+                                    configName = configName,
                                     notificationConfigId = copyTrading.notificationConfigId
                                 )
                             } catch (e: Exception) {
@@ -518,6 +525,11 @@ open class CopyOrderTrackingService(
                                         java.util.Locale("zh", "CN")  // 默认简体中文
                                     }
 
+                                    // 获取 Leader 和跟单配置信息
+                                    val leader = leaderRepository.findById(copyTrading.leaderId).orElse(null)
+                                    val leaderName = leader?.leaderName
+                                    val configName = copyTrading.configName
+
                                     telegramNotificationService?.sendOrderFailureNotification(
                                         marketTitle = marketTitle,
                                         marketId = trade.market,
@@ -530,6 +542,8 @@ open class CopyOrderTrackingService(
                                         accountName = account.accountName,
                                         walletAddress = account.walletAddress,
                                         locale = locale,
+                                        leaderName = leaderName,
+                                        configName = configName,
                                         notificationConfigId = copyTrading.notificationConfigId
                                     )
                                 } catch (e: Exception) {

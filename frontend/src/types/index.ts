@@ -108,12 +108,17 @@ export interface CopyTradingTemplate {
   minOrderSize?: string
   maxDailyOrders: number
   priceTolerance: string
+  delaySeconds: number
   supportSell: boolean
+  pushFailedOrders: boolean
   // 过滤条件
   minOrderDepth?: string
   maxSpread?: string
   minPrice?: string  // 最低价格（可选），NULL表示不限制最低价
   maxPrice?: string  // 最高价格（可选），NULL表示不限制最高价
+  // 仓位限制
+  maxPositionValue?: string
+  maxPositionCount?: number
   createdAt: number
   updatedAt: number
 }

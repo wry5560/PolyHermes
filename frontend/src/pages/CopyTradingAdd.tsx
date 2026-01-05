@@ -107,13 +107,15 @@ const CopyTradingAdd: React.FC = () => {
       minOrderSize: template.minOrderSize ? parseFloat(template.minOrderSize) : undefined,
       maxDailyOrders: template.maxDailyOrders,
       priceTolerance: template.priceTolerance ? parseFloat(template.priceTolerance) : undefined,
+      delaySeconds: template.delaySeconds,
       supportSell: template.supportSell,
+      pushFailedOrders: template.pushFailedOrders,
       minOrderDepth: template.minOrderDepth ? parseFloat(template.minOrderDepth) : undefined,
       maxSpread: template.maxSpread ? parseFloat(template.maxSpread) : undefined,
       minPrice: template.minPrice ? parseFloat(template.minPrice) : undefined,
       maxPrice: template.maxPrice ? parseFloat(template.maxPrice) : undefined,
-      maxPositionValue: (template as any).maxPositionValue ? parseFloat((template as any).maxPositionValue) : undefined,
-      maxPositionCount: (template as any).maxPositionCount
+      maxPositionValue: template.maxPositionValue ? parseFloat(template.maxPositionValue) : undefined,
+      maxPositionCount: template.maxPositionCount
     })
     setCopyMode(template.copyMode)
     setTemplateModalVisible(false)

@@ -57,7 +57,11 @@ open class CopyOrderTrackingService(
     
     // 使用 Mutex 保证线程安全（按交易ID锁定）
     private val tradeMutexMap = ConcurrentHashMap<String, Mutex>()
-    
+
+    // 使用 Mutex 保证仓位检查的线程安全（按 copyTradingId_marketId 锁定）
+    // 防止同一跟单配置对同一市场的并发订单绕过仓位限制
+    private val positionMutexMap = ConcurrentHashMap<String, Mutex>()
+
     // 订单创建重试配置
     companion object {
         private const val MAX_RETRY_ATTEMPTS = 2  // 最多重试次数（首次 + 1次重试）
@@ -70,6 +74,15 @@ open class CopyOrderTrackingService(
     private fun getMutex(leaderId: Long, tradeId: String): Mutex {
         val key = "${leaderId}_${tradeId}"
         return tradeMutexMap.getOrPut(key) { Mutex() }
+    }
+
+    /**
+     * 获取或创建仓位 Mutex（按 copyTradingId_marketId）
+     * 用于保证同一跟单配置对同一市场的订单串行处理，防止并发绕过仓位限制
+     */
+    private fun getPositionMutex(copyTradingId: Long, marketId: String): Mutex {
+        val key = "${copyTradingId}_${marketId}"
+        return positionMutexMap.getOrPut(key) { Mutex() }
     }
 
     /**
@@ -253,7 +266,7 @@ open class CopyOrderTrackingService(
                     // 先计算跟单金额（用于仓位检查）
                     // 注意：这里先计算金额，即使后续被过滤也会记录
                     val tradePrice = trade.price.toSafeBigDecimal()
-                    val buyQuantity = try {
+                    var buyQuantity = try {
                         calculateBuyQuantity(trade, copyTrading)
                     } catch (e: Exception) {
                         logger.warn("计算买入数量失败: ${e.message}", e)
@@ -261,20 +274,47 @@ open class CopyOrderTrackingService(
                     }
                     
                     // 计算跟单金额（USDC）= 买入数量 × 价格
-                    val copyOrderAmount = buyQuantity.multi(tradePrice)
+                    var copyOrderAmount = buyQuantity.multi(tradePrice)
 
-                    // 过滤条件检查（在计算订单参数之前）
-                    // 传入 Leader 交易价格，用于价格区间检查
-                    // 传入跟单金额和市场ID，用于仓位检查（按市场检查仓位）
-                    // 订单簿只请求一次，返回给后续逻辑使用
-                    val filterResult = filterService.checkFilters(
-                        copyTrading, 
-                        tokenId, 
-                        tradePrice = tradePrice,
-                        copyOrderAmount = copyOrderAmount,
-                        marketId = trade.market
-                    )
+                    // 获取仓位锁，防止并发订单绕过仓位限制
+                    val positionMutex = getPositionMutex(copyTrading.id!!, trade.market)
+
+                    // 在仓位锁内执行过滤条件检查和订单创建
+                    // 这确保同一跟单配置对同一市场的订单串行处理
+                    val filterResult = positionMutex.withLock {
+                        // 过滤条件检查（在计算订单参数之前）
+                        // 传入 Leader 交易价格，用于价格区间检查
+                        // 传入跟单金额和市场ID，用于仓位检查（按市场检查仓位）
+                        // 订单簿只请求一次，返回给后续逻辑使用
+                        filterService.checkFilters(
+                            copyTrading,
+                            tokenId,
+                            tradePrice = tradePrice,
+                            copyOrderAmount = copyOrderAmount,
+                            marketId = trade.market
+                        )
+                    }
+
                     val orderbook = filterResult.orderbook  // 获取订单簿（如果需要）
+
+                    // 如果有剩余可用仓位金额，且小于原始订单金额，则调整订单量
+                    val remainingPositionValue = filterResult.remainingPositionValue
+                    if (remainingPositionValue != null && remainingPositionValue.lt(copyOrderAmount)) {
+                        // 调整订单金额为剩余可用金额
+                        val adjustedAmount = remainingPositionValue
+                        // 重新计算买入数量 = 调整后金额 / 价格
+                        val adjustedQuantity = adjustedAmount.div(tradePrice)
+
+                        logger.info(
+                            "订单金额超过剩余仓位限制，调整订单量: copyTradingId=${copyTrading.id}, " +
+                            "原始金额=$copyOrderAmount, 剩余可用=$remainingPositionValue, " +
+                            "调整后金额=$adjustedAmount, 原始数量=$buyQuantity, 调整后数量=$adjustedQuantity"
+                        )
+
+                        buyQuantity = adjustedQuantity
+                        copyOrderAmount = adjustedAmount
+                    }
+
                     if (!filterResult.isPassed) {
                         logger.warn("过滤条件检查失败，跳过创建订单: copyTradingId=${copyTrading.id}, reason=${filterResult.reason}")
 

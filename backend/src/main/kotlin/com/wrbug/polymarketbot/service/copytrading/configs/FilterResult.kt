@@ -1,6 +1,7 @@
 package com.wrbug.polymarketbot.service.copytrading.configs
 
 import com.wrbug.polymarketbot.api.OrderbookResponse
+import java.math.BigDecimal
 
 /**
  * 过滤结果状态枚举
@@ -33,7 +34,9 @@ data class FilterResult(
     /** 失败原因（仅在失败时有效） */
     val reason: String = "",
     /** 订单簿（仅在需要时返回） */
-    val orderbook: OrderbookResponse? = null
+    val orderbook: OrderbookResponse? = null,
+    /** 剩余可用仓位金额（用于调整订单量，仅在仓位检查时返回） */
+    val remainingPositionValue: BigDecimal? = null
 ) {
     /** 是否通过 */
     val isPassed: Boolean
@@ -41,9 +44,10 @@ data class FilterResult(
 
     companion object {
         /** 通过 */
-        fun passed(orderbook: OrderbookResponse? = null) = FilterResult(
+        fun passed(orderbook: OrderbookResponse? = null, remainingPositionValue: BigDecimal? = null) = FilterResult(
             status = FilterStatus.PASSED,
-            orderbook = orderbook
+            orderbook = orderbook,
+            remainingPositionValue = remainingPositionValue
         )
 
         /** 价格区间失败 */

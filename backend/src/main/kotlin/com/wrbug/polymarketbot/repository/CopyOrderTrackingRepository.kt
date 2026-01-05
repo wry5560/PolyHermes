@@ -68,5 +68,32 @@ interface CopyOrderTrackingRepository : JpaRepository<CopyOrderTracking, Long> {
      */
     @Query("SELECT t FROM CopyOrderTracking t WHERE t.createdAt <= :beforeTime AND t.notificationSent = false")
     fun findByCreatedAtBeforeAndNotificationSentFalse(beforeTime: Long): List<CopyOrderTracking>
+
+    /**
+     * 计算某个跟单配置在某个市场的活跃仓位总金额（用于最大仓位限制检查）
+     * 只统计未完全卖出的订单（状态不为 fully_matched）
+     * 使用 quantity（实际成交数量）× price（实际成交价格）计算
+     */
+    @Query("""
+        SELECT COALESCE(SUM(t.quantity * t.price), 0)
+        FROM CopyOrderTracking t
+        WHERE t.copyTradingId = :copyTradingId
+        AND t.marketId = :marketId
+        AND t.status != 'fully_matched'
+    """)
+    fun sumActivePositionValue(copyTradingId: Long, marketId: String): BigDecimal
+
+    /**
+     * 统计某个跟单配置在某个市场的活跃仓位数量（用于最大仓位数量检查）
+     * 只统计未完全卖出的订单（状态不为 fully_matched）
+     */
+    @Query("""
+        SELECT COUNT(t)
+        FROM CopyOrderTracking t
+        WHERE t.copyTradingId = :copyTradingId
+        AND t.marketId = :marketId
+        AND t.status != 'fully_matched'
+    """)
+    fun countActivePositions(copyTradingId: Long, marketId: String): Long
 }
 

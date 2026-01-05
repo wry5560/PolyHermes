@@ -43,6 +43,15 @@ services:
     restart: unless-stopped
     networks:
       - polyhermes-network
+    # 资源限制：防止 CPU 和内存过度使用
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 3G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
 
   mysql:
     image: mysql:8.2
@@ -64,6 +73,15 @@ services:
     restart: unless-stopped
     networks:
       - polyhermes-network
+    # MySQL 资源限制
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
 
 volumes:
   mysql-data:

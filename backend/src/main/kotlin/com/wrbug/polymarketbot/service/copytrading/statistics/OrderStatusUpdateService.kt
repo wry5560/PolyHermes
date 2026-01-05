@@ -17,6 +17,7 @@ import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.math.BigDecimal
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * 订单状态更新服务
@@ -37,8 +38,17 @@ class OrderStatusUpdateService(
 ) {
     
     private val logger = LoggerFactory.getLogger(OrderStatusUpdateService::class.java)
-    
+
     private val updateScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    // 并发控制：防止任务重叠执行
+    private val isRunning = AtomicBoolean(false)
+
+    // 批量处理限制：每次轮询最多处理的订单数量
+    companion object {
+        private const val BATCH_SIZE = 50
+        private const val API_CALL_DELAY_MS = 100L  // API 调用间隔，避免请求过快
+    }
     
     @EventListener(ApplicationReadyEvent::class)
     fun onApplicationReady() {
@@ -51,21 +61,37 @@ class OrderStatusUpdateService(
      */
     @Scheduled(fixedDelay = 5000)
     fun updateOrderStatus() {
+        // 并发控制：如果上一次任务还在执行，跳过本次
+        if (!isRunning.compareAndSet(false, true)) {
+            logger.debug("订单状态更新任务仍在执行中，跳过本次轮询")
+            return
+        }
+
         updateScope.launch {
+            val startTime = System.currentTimeMillis()
             try {
-                // 1. 清理已删除账户的订单
-                cleanupDeletedAccountOrders()
-                
+                // 1. 清理已删除账户的订单（降低频率，每分钟检查一次）
+                if (startTime % 60000 < 5000) {
+                    cleanupDeletedAccountOrders()
+                }
+
                 // 2. 检查30秒前创建的订单，如果未成交则删除
                 checkAndDeleteUnfilledOrders()
-                
+
                 // 3. 更新卖出订单的实际成交价并发送通知（priceUpdated 共用字段）
                 updatePendingSellOrderPrices()
-                
+
                 // 4. 更新买入订单的实际数据并发送通知
                 updatePendingBuyOrders()
+
+                val elapsed = System.currentTimeMillis() - startTime
+                if (elapsed > 3000) {
+                    logger.warn("订单状态更新耗时较长: ${elapsed}ms")
+                }
             } catch (e: Exception) {
                 logger.error("订单状态更新异常: ${e.message}", e)
+            } finally {
+                isRunning.set(false)
             }
         }
     }
@@ -150,12 +176,18 @@ class OrderStatusUpdateService(
             val thirtySecondsAgo = System.currentTimeMillis() - 30000
 
             // 查询30秒前创建且未发送通知的订单（只检查未处理的订单，避免重复查询）
-            val ordersToCheck = copyOrderTrackingRepository.findByCreatedAtBeforeAndNotificationSentFalse(thirtySecondsAgo)
-            
-            if (ordersToCheck.isEmpty()) {
+            val allOrdersToCheck = copyOrderTrackingRepository.findByCreatedAtBeforeAndNotificationSentFalse(thirtySecondsAgo)
+
+            if (allOrdersToCheck.isEmpty()) {
                 return
             }
-            
+
+            // 批量处理限制：每次最多处理 BATCH_SIZE 条
+            val ordersToCheck = allOrdersToCheck.take(BATCH_SIZE)
+            if (allOrdersToCheck.size > BATCH_SIZE) {
+                logger.info("待检查订单数 ${allOrdersToCheck.size} 超过批量限制，本次处理 $BATCH_SIZE 条")
+            }
+
             logger.debug("检查 ${ordersToCheck.size} 个30秒前创建的订单是否成交")
             
             // 按账户分组，避免重复创建 API 客户端
@@ -251,6 +283,8 @@ class OrderStatusUpdateService(
                             } else {
                                 logger.debug("订单已成交或部分成交，保留: orderId=${order.buyOrderId}, status=${orderDetail.status}, sizeMatched=$sizeMatched")
                             }
+                            // API 调用间隔，避免请求过快
+                            delay(API_CALL_DELAY_MS)
                         } catch (e: Exception) {
                             logger.error("检查订单失败: orderId=${order.buyOrderId}, error=${e.message}", e)
                         }
@@ -272,12 +306,18 @@ class OrderStatusUpdateService(
     private suspend fun updatePendingSellOrderPrices() {
         try {
             // 查询所有价格未更新的卖出记录（priceUpdated = false 表示未处理）
-            val pendingRecords = sellMatchRecordRepository.findByPriceUpdatedFalse()
-            
-            if (pendingRecords.isEmpty()) {
+            val allPendingRecords = sellMatchRecordRepository.findByPriceUpdatedFalse()
+
+            if (allPendingRecords.isEmpty()) {
                 return
             }
-            
+
+            // 批量处理限制：每次最多处理 BATCH_SIZE 条
+            val pendingRecords = allPendingRecords.take(BATCH_SIZE)
+            if (allPendingRecords.size > BATCH_SIZE) {
+                logger.info("待更新卖出订单数 ${allPendingRecords.size} 超过批量限制，本次处理 $BATCH_SIZE 条")
+            }
+
             logger.debug("找到 ${pendingRecords.size} 条待更新价格的卖出订单")
             
             for (record in pendingRecords) {
@@ -489,6 +529,8 @@ class OrderStatusUpdateService(
                         sellMatchRecordRepository.save(updatedRecord)
                         logger.debug("卖出订单价格无需更新但已发送通知: orderId=${record.sellOrderId}, price=$actualSellPrice")
                     }
+                    // API 调用间隔，避免请求过快
+                    delay(API_CALL_DELAY_MS)
                 } catch (e: Exception) {
                     logger.warn("更新卖出订单价格失败: orderId=${record.sellOrderId}, error=${e.message}", e)
                     // 继续处理下一条记录
@@ -507,12 +549,18 @@ class OrderStatusUpdateService(
     private suspend fun updatePendingBuyOrders() {
         try {
             // 查询所有未发送通知的买入订单
-            val pendingOrders = copyOrderTrackingRepository.findByNotificationSentFalse()
-            
-            if (pendingOrders.isEmpty()) {
+            val allPendingOrders = copyOrderTrackingRepository.findByNotificationSentFalse()
+
+            if (allPendingOrders.isEmpty()) {
                 return
             }
-            
+
+            // 批量处理限制：每次最多处理 BATCH_SIZE 条
+            val pendingOrders = allPendingOrders.take(BATCH_SIZE)
+            if (allPendingOrders.size > BATCH_SIZE) {
+                logger.info("待发送通知订单数 ${allPendingOrders.size} 超过批量限制，本次处理 $BATCH_SIZE 条")
+            }
+
             logger.debug("找到 ${pendingOrders.size} 条待发送通知的买入订单")
             
             for (order in pendingOrders) {
@@ -671,6 +719,8 @@ class OrderStatusUpdateService(
                         apiSecret = apiSecret,
                         apiPassphrase = apiPassphrase
                     )
+                    // API 调用间隔，避免请求过快
+                    delay(API_CALL_DELAY_MS)
                 } catch (e: Exception) {
                     logger.warn("更新买入订单失败: orderId=${order.buyOrderId}, error=${e.message}", e)
                     // 继续处理下一条记录

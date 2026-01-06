@@ -270,16 +270,23 @@ open class CopyOrderTrackingService(
                     // 直接使用outcomeIndex获取tokenId（支持多元市场）
                     if (trade.outcomeIndex == null) {
                         logger.warn("交易缺少outcomeIndex，无法确定tokenId: tradeId=${trade.id}, market=${trade.market}")
+                        handleSkipped(copyTrading, account, trade, "交易缺少 outcomeIndex，无法确定 tokenId", "MISSING_OUTCOME_INDEX")
                         continue
                     }
 
                     // 获取tokenId（直接使用outcomeIndex，不转换为YES/NO）
                     val tokenIdResult = blockchainService.getTokenId(trade.market, trade.outcomeIndex)
                     if (tokenIdResult.isFailure) {
-                        logger.error("获取tokenId失败: market=${trade.market}, outcomeIndex=${trade.outcomeIndex}, error=${tokenIdResult.exceptionOrNull()?.message}")
+                        val errorMsg = tokenIdResult.exceptionOrNull()?.message ?: "未知错误"
+                        logger.error("获取tokenId失败: market=${trade.market}, outcomeIndex=${trade.outcomeIndex}, error=$errorMsg")
+                        handleSkipped(copyTrading, account, trade, "获取 tokenId 失败: $errorMsg", "TOKEN_ID_FETCH_FAILED")
                         continue
                     }
-                    val tokenId = tokenIdResult.getOrNull() ?: continue
+                    val tokenId = tokenIdResult.getOrNull()
+                    if (tokenId == null) {
+                        handleSkipped(copyTrading, account, trade, "tokenId 为空", "TOKEN_ID_NULL")
+                        continue
+                    }
 
                     // 先计算跟单金额（用于仓位检查）
                     // 注意：这里先计算金额，即使后续被过滤也会记录
@@ -288,6 +295,7 @@ open class CopyOrderTrackingService(
                         calculateBuyQuantity(trade, copyTrading)
                     } catch (e: Exception) {
                         logger.warn("计算买入数量失败: ${e.message}", e)
+                        handleSkipped(copyTrading, account, trade, "计算买入数量失败: ${e.message}", "CALCULATE_QUANTITY_FAILED")
                         continue
                     }
                     
@@ -572,6 +580,16 @@ open class CopyOrderTrackingService(
                             }
                         }
 
+                        // 记录 API 调用失败到 filtered_order
+                        handleApiFailure(
+                            copyTrading = copyTrading,
+                            account = account,
+                            trade = trade,
+                            errorMessage = exception?.message ?: "未知错误",
+                            buyPrice = buyPrice,
+                            buyQuantity = finalBuyQuantity
+                        )
+
                         // API 调用失败，删除 pending 订单记录
                         deletePendingTracking(pendingTrackingId)
                         continue
@@ -579,6 +597,14 @@ open class CopyOrderTrackingService(
 
                     val realOrderId = createOrderResult.getOrNull()
                     if (realOrderId == null) {
+                        handleApiFailure(
+                            copyTrading = copyTrading,
+                            account = account,
+                            trade = trade,
+                            errorMessage = "API 返回的订单 ID 为空",
+                            buyPrice = buyPrice,
+                            buyQuantity = finalBuyQuantity
+                        )
                         deletePendingTracking(pendingTrackingId)
                         continue
                     }
@@ -586,6 +612,14 @@ open class CopyOrderTrackingService(
                     // 验证 orderId 格式（必须以 0x 开头的 16 进制）
                     if (!isValidOrderId(realOrderId)) {
                         logger.warn("买入订单ID格式无效，删除 pending 订单记录: orderId=$realOrderId")
+                        handleApiFailure(
+                            copyTrading = copyTrading,
+                            account = account,
+                            trade = trade,
+                            errorMessage = "订单 ID 格式无效: $realOrderId",
+                            buyPrice = buyPrice,
+                            buyQuantity = finalBuyQuantity
+                        )
                         deletePendingTracking(pendingTrackingId)
                         continue
                     }
@@ -1622,6 +1656,67 @@ open class CopyOrderTrackingService(
                 logger.info("已记录跳过的订单: copyTradingId=${copyTrading.id}, tradeId=${trade.id}, filterType=$filterType, reason=$reason")
             } catch (e: Exception) {
                 logger.error("保存跳过订单记录失败: ${e.message}", e)
+            }
+        }
+    }
+
+    /**
+     * 处理 API 调用失败的订单
+     * 记录失败原因到 filtered_order 表
+     */
+    private fun handleApiFailure(
+        copyTrading: CopyTrading,
+        account: com.wrbug.polymarketbot.entity.Account,
+        trade: TradeResponse,
+        errorMessage: String,
+        buyPrice: BigDecimal,
+        buyQuantity: BigDecimal
+    ) {
+        // 异步记录，不阻塞主流程
+        notificationScope.launch {
+            try {
+                // 获取市场信息
+                val marketInfo = withContext(Dispatchers.IO) {
+                    try {
+                        val gammaApi = retrofitFactory.createGammaApi()
+                        val marketResponse = gammaApi.listMarkets(conditionIds = listOf(trade.market))
+                        if (marketResponse.isSuccessful && marketResponse.body() != null) {
+                            marketResponse.body()!!.firstOrNull()
+                        } else {
+                            null
+                        }
+                    } catch (e: Exception) {
+                        logger.warn("获取市场信息失败: ${e.message}")
+                        null
+                    }
+                }
+
+                val marketTitle = marketInfo?.question ?: trade.market
+                val marketSlug = marketInfo?.slug
+
+                // 记录到数据库
+                val filteredOrder = FilteredOrder(
+                    copyTradingId = copyTrading.id!!,
+                    accountId = copyTrading.accountId,
+                    leaderId = copyTrading.leaderId,
+                    leaderTradeId = trade.id,
+                    marketId = trade.market,
+                    marketTitle = marketTitle,
+                    marketSlug = marketSlug,
+                    side = "BUY",
+                    outcomeIndex = trade.outcomeIndex,
+                    outcome = trade.outcome,
+                    price = trade.price.toSafeBigDecimal(),
+                    size = trade.size.toSafeBigDecimal(),
+                    calculatedQuantity = buyQuantity,
+                    filterReason = errorMessage,
+                    filterType = "API_FAILURE"
+                )
+
+                filteredOrderRepository.save(filteredOrder)
+                logger.info("已记录 API 失败订单: copyTradingId=${copyTrading.id}, tradeId=${trade.id}, error=$errorMessage")
+            } catch (e: Exception) {
+                logger.error("保存 API 失败订单记录失败: ${e.message}", e)
             }
         }
     }

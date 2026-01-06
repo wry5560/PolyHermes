@@ -75,8 +75,8 @@ open class CopyOrderTrackingService(
     private sealed class PendingOrderResult {
         /** 过滤检查失败 */
         data class FilterFailed(val filterResult: FilterResult) : PendingOrderResult()
-        /** 跳过（各种原因） */
-        data object Skipped : PendingOrderResult()
+        /** 跳过（各种原因），记录原因以便存入 filtered_order */
+        data class Skipped(val reason: String, val filterType: String) : PendingOrderResult()
         /** 成功预占仓位 */
         data class Success(
             val trackingId: Long,
@@ -343,7 +343,10 @@ open class CopyOrderTrackingService(
                             val orderAmount = adjustedBuyQuantity.multi(trade.price.toSafeBigDecimal())
                             if (orderAmount.lt(copyTrading.minOrderSize)) {
                                 logger.warn("订单金额低于最小限制，跳过: copyTradingId=${copyTrading.id}, amount=$orderAmount, min=${copyTrading.minOrderSize}")
-                                return@withLock PendingOrderResult.Skipped
+                                return@withLock PendingOrderResult.Skipped(
+                                    reason = "订单金额 $orderAmount 低于最小限制 ${copyTrading.minOrderSize}",
+                                    filterType = "MIN_ORDER_SIZE"
+                                )
                             }
                             if (orderAmount.gt(copyTrading.maxOrderSize)) {
                                 logger.warn("订单金额超过最大限制，调整数量: copyTradingId=${copyTrading.id}, amount=$orderAmount, max=${copyTrading.maxOrderSize}")
@@ -351,7 +354,10 @@ open class CopyOrderTrackingService(
                                 val adjustedQty = copyTrading.maxOrderSize.div(trade.price.toSafeBigDecimal())
                                 if (adjustedQty.lte(BigDecimal.ZERO)) {
                                     logger.warn("调整后的数量为0或负数，跳过: copyTradingId=${copyTrading.id}")
-                                    return@withLock PendingOrderResult.Skipped
+                                    return@withLock PendingOrderResult.Skipped(
+                                        reason = "调整后的数量为0或负数",
+                                        filterType = "INVALID_QUANTITY"
+                                    )
                                 }
                                 finalBuyQuantity = adjustedQty
                             }
@@ -373,12 +379,18 @@ open class CopyOrderTrackingService(
 
                             if (bestAsk == null) {
                                 logger.warn("订单簿中没有卖单，跳过创建订单: copyTradingId=${copyTrading.id}, tradeId=${trade.id}")
-                                return@withLock PendingOrderResult.Skipped
+                                return@withLock PendingOrderResult.Skipped(
+                                    reason = "订单簿中没有卖单",
+                                    filterType = "NO_ASKS_IN_ORDERBOOK"
+                                )
                             }
 
                             if (buyPrice.lt(bestAsk)) {
                                 logger.warn("调整后的买入价格 ($buyPrice) 低于最佳卖单价格 ($bestAsk)，无法匹配: copyTradingId=${copyTrading.id}")
-                                return@withLock PendingOrderResult.Skipped
+                                return@withLock PendingOrderResult.Skipped(
+                                    reason = "买入价格 $buyPrice 低于最佳卖单价格 $bestAsk，无法匹配",
+                                    filterType = "PRICE_BELOW_BEST_ASK"
+                                )
                             }
                         }
 
@@ -386,7 +398,10 @@ open class CopyOrderTrackingService(
                         val riskCheckResult = checkRiskControls(copyTrading)
                         if (!riskCheckResult.first) {
                             logger.warn("风险控制检查失败，跳过创建订单: copyTradingId=${copyTrading.id}, reason=${riskCheckResult.second}")
-                            return@withLock PendingOrderResult.Skipped
+                            return@withLock PendingOrderResult.Skipped(
+                                reason = riskCheckResult.second ?: "风险控制检查失败",
+                                filterType = "RISK_CONTROL"
+                            )
                         }
 
                         // 保存 pending 状态的订单跟踪记录（预占仓位）
@@ -427,7 +442,11 @@ open class CopyOrderTrackingService(
                             handleFilterFailed(copyTrading, account, trade, filterResult)
                             continue
                         }
-                        is PendingOrderResult.Skipped -> continue
+                        is PendingOrderResult.Skipped -> {
+                            // 记录跳过的订单到 filtered_order 表
+                            handleSkipped(copyTrading, account, trade, pendingResult.reason, pendingResult.filterType)
+                            continue
+                        }
                         is PendingOrderResult.Success -> {
                             // 继续执行 API 调用
                             buyQuantity = pendingResult.buyQuantity
@@ -1537,6 +1556,73 @@ open class CopyOrderTrackingService(
             }
         } catch (e: Exception) {
             logger.error("更新 pending 订单记录失败: trackingId=$trackingId, error=${e.message}", e)
+        }
+    }
+
+    /**
+     * 处理跳过的订单
+     * 记录跳过原因到 filtered_order 表
+     */
+    private fun handleSkipped(
+        copyTrading: CopyTrading,
+        account: com.wrbug.polymarketbot.entity.Account,
+        trade: TradeResponse,
+        reason: String,
+        filterType: String
+    ) {
+        // 异步记录，不阻塞主流程
+        notificationScope.launch {
+            try {
+                // 获取市场信息
+                val marketInfo = withContext(Dispatchers.IO) {
+                    try {
+                        val gammaApi = retrofitFactory.createGammaApi()
+                        val marketResponse = gammaApi.listMarkets(conditionIds = listOf(trade.market))
+                        if (marketResponse.isSuccessful && marketResponse.body() != null) {
+                            marketResponse.body()!!.firstOrNull()
+                        } else {
+                            null
+                        }
+                    } catch (e: Exception) {
+                        logger.warn("获取市场信息失败: ${e.message}")
+                        null
+                    }
+                }
+
+                val marketTitle = marketInfo?.question ?: trade.market
+                val marketSlug = marketInfo?.slug
+
+                // 计算买入数量（用于记录）
+                val calculatedQuantity = try {
+                    calculateBuyQuantity(trade, copyTrading)
+                } catch (e: Exception) {
+                    null
+                }
+
+                // 记录到数据库
+                val filteredOrder = FilteredOrder(
+                    copyTradingId = copyTrading.id!!,
+                    accountId = copyTrading.accountId,
+                    leaderId = copyTrading.leaderId,
+                    leaderTradeId = trade.id,
+                    marketId = trade.market,
+                    marketTitle = marketTitle,
+                    marketSlug = marketSlug,
+                    side = "BUY",
+                    outcomeIndex = trade.outcomeIndex,
+                    outcome = trade.outcome,
+                    price = trade.price.toSafeBigDecimal(),
+                    size = trade.size.toSafeBigDecimal(),
+                    calculatedQuantity = calculatedQuantity,
+                    filterReason = reason,
+                    filterType = filterType
+                )
+
+                filteredOrderRepository.save(filteredOrder)
+                logger.info("已记录跳过的订单: copyTradingId=${copyTrading.id}, tradeId=${trade.id}, filterType=$filterType, reason=$reason")
+            } catch (e: Exception) {
+                logger.error("保存跳过订单记录失败: ${e.message}", e)
+            }
         }
     }
 

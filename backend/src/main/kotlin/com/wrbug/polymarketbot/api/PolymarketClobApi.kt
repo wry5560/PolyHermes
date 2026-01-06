@@ -321,7 +321,8 @@ data class TradeResponse(
     val timestamp: String,  // ISO 8601 格式字符串或时间戳
     val user: String?,
     val outcomeIndex: Int? = null,  // 结果索引（0=YES, 1=NO）
-    val outcome: String? = null    // 结果名称（如 "Up", "Down"）
+    val outcome: String? = null,    // 结果名称（如 "Up", "Down"）
+    val asset: String? = null       // tokenId（Polymarket Data API 返回）
 )
 
 /**

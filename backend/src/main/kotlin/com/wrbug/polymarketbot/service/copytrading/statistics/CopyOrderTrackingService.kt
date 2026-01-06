@@ -267,25 +267,32 @@ open class CopyOrderTrackingService(
                         continue
                     }
 
-                    // 直接使用outcomeIndex获取tokenId（支持多元市场）
-                    if (trade.outcomeIndex == null) {
-                        logger.warn("交易缺少outcomeIndex，无法确定tokenId: tradeId=${trade.id}, market=${trade.market}")
-                        handleSkipped(copyTrading, account, trade, "交易缺少 outcomeIndex，无法确定 tokenId", "MISSING_OUTCOME_INDEX")
-                        continue
-                    }
+                    // 优先使用 trade.asset（Polymarket Data API 返回的 tokenId）
+                    // 只有当 asset 为空时才通过 outcomeIndex 计算（兼容旧数据）
+                    val tokenId: String = if (!trade.asset.isNullOrBlank()) {
+                        // 直接使用 API 返回的 asset 作为 tokenId
+                        logger.debug("使用 trade.asset 作为 tokenId: ${trade.asset}")
+                        trade.asset
+                    } else {
+                        // 回退：通过 outcomeIndex 计算 tokenId（仅用于兼容没有 asset 字段的旧数据）
+                        if (trade.outcomeIndex == null) {
+                            logger.warn("交易缺少 asset 和 outcomeIndex，无法确定 tokenId: tradeId=${trade.id}, market=${trade.market}")
+                            handleSkipped(copyTrading, account, trade, "交易缺少 asset 和 outcomeIndex，无法确定 tokenId", "MISSING_OUTCOME_INDEX")
+                            continue
+                        }
 
-                    // 获取tokenId（直接使用outcomeIndex，不转换为YES/NO）
-                    val tokenIdResult = blockchainService.getTokenId(trade.market, trade.outcomeIndex)
-                    if (tokenIdResult.isFailure) {
-                        val errorMsg = tokenIdResult.exceptionOrNull()?.message ?: "未知错误"
-                        logger.error("获取tokenId失败: market=${trade.market}, outcomeIndex=${trade.outcomeIndex}, error=$errorMsg")
-                        handleSkipped(copyTrading, account, trade, "获取 tokenId 失败: $errorMsg", "TOKEN_ID_FETCH_FAILED")
-                        continue
-                    }
-                    val tokenId = tokenIdResult.getOrNull()
-                    if (tokenId == null) {
-                        handleSkipped(copyTrading, account, trade, "tokenId 为空", "TOKEN_ID_NULL")
-                        continue
+                        logger.warn("trade.asset 为空，使用 outcomeIndex 计算 tokenId（可能不准确）: tradeId=${trade.id}, outcomeIndex=${trade.outcomeIndex}")
+                        val tokenIdResult = blockchainService.getTokenId(trade.market, trade.outcomeIndex)
+                        if (tokenIdResult.isFailure) {
+                            val errorMsg = tokenIdResult.exceptionOrNull()?.message ?: "未知错误"
+                            logger.error("获取tokenId失败: market=${trade.market}, outcomeIndex=${trade.outcomeIndex}, error=$errorMsg")
+                            handleSkipped(copyTrading, account, trade, "获取 tokenId 失败: $errorMsg", "TOKEN_ID_FETCH_FAILED")
+                            continue
+                        }
+                        tokenIdResult.getOrNull() ?: run {
+                            handleSkipped(copyTrading, account, trade, "tokenId 为空", "TOKEN_ID_NULL")
+                            continue
+                        }
                     }
 
                     // 先计算跟单金额（用于仓位检查）

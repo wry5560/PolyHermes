@@ -230,7 +230,7 @@ object OnChainWsUtils {
             logger.warn("无法确定 outcomeIndex，交易可能无法被处理: txHash=$txHash, market=${marketInfo.conditionId}, asset=$asset")
         }
 
-        // 创建 TradeResponse
+        // 创建 TradeResponse（包含 asset 字段，这是链上解析出的实际 tokenId）
         return TradeResponse(
             id = txHash,
             market = marketInfo?.conditionId ?: "",
@@ -240,7 +240,8 @@ object OnChainWsUtils {
             timestamp = (timestamp ?: System.currentTimeMillis() / 1000).toString(),
             user = walletAddress,
             outcomeIndex = marketInfo?.outcomeIndex,
-            outcome = marketInfo?.outcome
+            outcome = marketInfo?.outcome,
+            asset = asset.toString()  // 传递链上解析的实际 tokenId
         )
     }
     

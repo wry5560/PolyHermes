@@ -72,10 +72,11 @@ interface CopyOrderTrackingRepository : JpaRepository<CopyOrderTracking, Long> {
     /**
      * 计算某个跟单配置在某个市场的活跃仓位总金额（用于最大仓位限制检查）
      * 只统计未完全卖出的订单（状态不为 fully_matched）
-     * 使用 quantity（实际成交数量）× price（实际成交价格）计算
+     * 使用 remainingQuantity（剩余未卖出数量）× price（买入价格）计算
+     * 注意：使用 remainingQuantity 而不是 quantity，确保部分卖出后仓位值正确计算
      */
     @Query("""
-        SELECT COALESCE(SUM(t.quantity * t.price), 0)
+        SELECT COALESCE(SUM(t.remainingQuantity * t.price), 0)
         FROM CopyOrderTracking t
         WHERE t.copyTradingId = :copyTradingId
         AND t.marketId = :marketId

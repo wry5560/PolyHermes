@@ -206,7 +206,8 @@ object OnChainWsUtils {
             sizeRaw = bestOutVal
             usdcRaw = usdcIn
         } else {
-            // 无法判断交易方向
+            // 无法判断交易方向（可能是非交易事件，如 SPLIT、MERGE、REDEEM）
+            logger.debug("无法判断交易方向: txHash=$txHash, wallet=$wallet, usdcIn=$usdcIn, usdcOut=$usdcOut, bestInId=$bestInId, bestInVal=$bestInVal, bestOutId=$bestOutId, bestOutVal=$bestOutVal")
             return null
         }
         
@@ -221,7 +222,14 @@ object OnChainWsUtils {
         
         // 尝试通过 Gamma API 查询市场信息（通过 tokenId）
         val marketInfo = fetchMarketByTokenId(asset.toString(), retrofitFactory)
-        
+
+        // 如果无法获取市场信息，记录警告
+        if (marketInfo == null) {
+            logger.warn("无法获取市场信息，交易可能无法被处理: txHash=$txHash, asset=$asset, side=$side")
+        } else if (marketInfo.outcomeIndex == null) {
+            logger.warn("无法确定 outcomeIndex，交易可能无法被处理: txHash=$txHash, market=${marketInfo.conditionId}, asset=$asset")
+        }
+
         // 创建 TradeResponse
         return TradeResponse(
             id = txHash,
@@ -248,15 +256,17 @@ object OnChainWsUtils {
                 clobTokenIds = listOf(tokenId),
                 includeTag = null
             )
-            
+
             if (!marketsResponse.isSuccessful || marketsResponse.body() == null) {
+                logger.warn("Gamma API 查询市场失败: tokenId=$tokenId, code=${marketsResponse.code()}, message=${marketsResponse.message()}")
                 return null
             }
-            
+
             val markets = marketsResponse.body()!!
             val market = markets.firstOrNull()
-            
+
             if (market == null) {
+                logger.warn("Gamma API 未找到市场: tokenId=$tokenId")
                 return null
             }
             

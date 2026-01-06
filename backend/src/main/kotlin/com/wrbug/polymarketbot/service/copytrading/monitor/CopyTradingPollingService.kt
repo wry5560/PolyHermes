@@ -66,20 +66,30 @@ class CopyTradingPollingService(
     
     /**
      * 添加Leader监听
+     * 如果 Leader 已经在监听列表中，不重复添加，避免重置 isFirstPoll 导致漏单
      */
     fun addLeader(leader: Leader) {
         if (leader.id == null) {
             logger.warn("Leader ID为空，跳过: ${leader.leaderAddress}")
             return
         }
-        
+
         val leaderId = leader.id
+
+        // 如果已经在监听列表中，不重复添加（避免重置 isFirstPoll）
+        if (monitoredLeaders.containsKey(leaderId)) {
+            logger.debug("Leader 已在轮询监听列表中: ${leader.leaderName} (${leader.leaderAddress})")
+            return
+        }
+
         monitoredLeaders[leaderId] = leader
         // 初始化缓存的交易ID集合
         cachedTradeIds[leaderId] = mutableSetOf()
         // 首次轮询标志，用于缓存数据而不处理
         isFirstPoll[leaderId] = true
-        
+
+        logger.info("添加 Leader 到轮询监听: ${leader.leaderName} (${leader.leaderAddress})")
+
         // 如果轮询任务没有运行，启动它
         startPolling()
     }

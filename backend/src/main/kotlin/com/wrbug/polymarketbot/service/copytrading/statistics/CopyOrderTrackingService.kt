@@ -269,10 +269,11 @@ open class CopyOrderTrackingService(
 
                     // 优先使用 trade.asset（Polymarket Data API 返回的 tokenId）
                     // 只有当 asset 为空时才通过 outcomeIndex 计算（兼容旧数据）
-                    val tokenId: String = if (!trade.asset.isNullOrBlank()) {
+                    val tokenId: String
+                    if (!trade.asset.isNullOrBlank()) {
                         // 直接使用 API 返回的 asset 作为 tokenId
                         logger.debug("使用 trade.asset 作为 tokenId: ${trade.asset}")
-                        trade.asset
+                        tokenId = trade.asset
                     } else {
                         // 回退：通过 outcomeIndex 计算 tokenId（仅用于兼容没有 asset 字段的旧数据）
                         if (trade.outcomeIndex == null) {
@@ -289,10 +290,12 @@ open class CopyOrderTrackingService(
                             handleSkipped(copyTrading, account, trade, "获取 tokenId 失败: $errorMsg", "TOKEN_ID_FETCH_FAILED")
                             continue
                         }
-                        tokenIdResult.getOrNull() ?: run {
+                        val calculatedTokenId = tokenIdResult.getOrNull()
+                        if (calculatedTokenId == null) {
                             handleSkipped(copyTrading, account, trade, "tokenId 为空", "TOKEN_ID_NULL")
                             continue
                         }
+                        tokenId = calculatedTokenId
                     }
 
                     // 先计算跟单金额（用于仓位检查）

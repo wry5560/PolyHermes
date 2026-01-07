@@ -48,7 +48,8 @@ open class CopyOrderTrackingService(
     private val clobService: PolymarketClobService,
     private val retrofitFactory: RetrofitFactory,
     private val cryptoUtils: CryptoUtils,
-    private val telegramNotificationService: TelegramNotificationService? = null  // 可选，避免循环依赖
+    private val telegramNotificationService: TelegramNotificationService? = null,  // 可选，避免循环依赖
+    private val pendingOrderTransactionService: PendingOrderTransactionService  // 独立事务服务，确保 pending 订单立即提交
 ) {
 
     private val logger = LoggerFactory.getLogger(CopyOrderTrackingService::class.java)
@@ -69,23 +70,9 @@ open class CopyOrderTrackingService(
         private const val RETRY_DELAY_MS = 3000L  // 重试前等待时间（毫秒，3秒）
     }
 
-    /**
-     * 仓位锁内的订单预处理结果
-     */
-    private sealed class PendingOrderResult {
-        /** 过滤检查失败 */
-        data class FilterFailed(val filterResult: FilterResult) : PendingOrderResult()
-        /** 跳过（各种原因），记录原因以便存入 filtered_order */
-        data class Skipped(val reason: String, val filterType: String) : PendingOrderResult()
-        /** 成功预占仓位 */
-        data class Success(
-            val trackingId: Long,
-            val filterResult: FilterResult,
-            val buyQuantity: BigDecimal,
-            val buyPrice: BigDecimal
-        ) : PendingOrderResult()
-    }
-    
+    // 使用 PendingOrderTransactionService.PendingOrderResult 代替本地的 sealed class
+    // 这样可以确保 pending 订单在独立事务中保存并立即提交，防止并发绕过仓位限制
+
     /**
      * 获取或创建 Mutex（按交易ID）
      */
@@ -315,164 +302,53 @@ open class CopyOrderTrackingService(
                     // 获取仓位锁，防止并发订单绕过仓位限制
                     val positionMutex = getPositionMutex(copyTrading.id!!, trade.market)
 
-                    // 在仓位锁内执行：过滤检查 + 保存 pending 订单
-                    // 这确保同一跟单配置对同一市场的订单串行处理，防止并发绕过仓位限制
-                    // 方案：先保存 "pending" 状态的订单记录（预占仓位），然后在锁外执行 API 调用
-                    // 如果 API 调用成功，更新状态为 "filled"；如果失败，删除 pending 记录
+                    // 在仓位锁内执行：过滤检查 + 保存 pending 订单（使用独立事务）
+                    // 关键改进：使用 PendingOrderTransactionService 的 REQUIRES_NEW 事务
+                    // 确保 pending 订单保存后立即提交，对其他事务可见，防止并发绕过仓位限制
+                    //
+                    // 之前的问题：
+                    // - Mutex 锁释放后，外层事务尚未提交
+                    // - 其他事务查询时看不到已保存的 pending 订单
+                    // - 导致多个并发请求都能通过仓位检查
+                    //
+                    // 现在的方案：
+                    // - 在 Mutex 锁内调用 checkPositionAndSavePending()
+                    // - 该方法使用 REQUIRES_NEW 事务，保存后立即提交
+                    // - Mutex 释放时，数据已经对其他事务可见
                     val pendingResult = positionMutex.withLock {
-                        // 过滤条件检查（在计算订单参数之前）
-                        val filterResult = filterService.checkFilters(
-                            copyTrading,
-                            tokenId,
-                            tradePrice = tradePrice,
+                        // 调用独立事务服务执行仓位检查和保存 pending 订单
+                        // 该方法使用 REQUIRES_NEW 事务传播级别，确保立即提交
+                        pendingOrderTransactionService.checkPositionAndSavePending(
+                            copyTrading = copyTrading,
+                            trade = trade,
+                            tokenId = tokenId,
+                            buyQuantity = buyQuantity,
                             copyOrderAmount = copyOrderAmount,
-                            marketId = trade.market
-                        )
-
-                        // 如果过滤检查未通过，直接返回
-                        if (!filterResult.isPassed) {
-                            return@withLock PendingOrderResult.FilterFailed(filterResult)
-                        }
-
-                        var adjustedBuyQuantity = buyQuantity
-                        var adjustedCopyOrderAmount = copyOrderAmount
-
-                        // 如果有剩余可用仓位金额，且小于原始订单金额，则调整订单量
-                        val remainingPositionValue = filterResult.remainingPositionValue
-                        if (remainingPositionValue != null && remainingPositionValue.lt(copyOrderAmount)) {
-                            // 调整订单金额为剩余可用金额
-                            val adjustedAmount = remainingPositionValue
-                            // 重新计算买入数量 = 调整后金额 / 价格
-                            val adjustedQuantity = adjustedAmount.div(tradePrice)
-
-                            logger.info(
-                                "订单金额超过剩余仓位限制，调整订单量: copyTradingId=${copyTrading.id}, " +
-                                "原始金额=$copyOrderAmount, 剩余可用=$remainingPositionValue, " +
-                                "调整后金额=$adjustedAmount, 原始数量=$buyQuantity, 调整后数量=$adjustedQuantity"
-                            )
-
-                            adjustedBuyQuantity = adjustedQuantity
-                            adjustedCopyOrderAmount = adjustedAmount
-                        }
-
-                        // 验证订单数量限制（仅比例模式）
-                        var finalBuyQuantity = adjustedBuyQuantity
-                        if (copyTrading.copyMode == "RATIO") {
-                            val orderAmount = adjustedBuyQuantity.multi(trade.price.toSafeBigDecimal())
-                            if (orderAmount.lt(copyTrading.minOrderSize)) {
-                                logger.warn("订单金额低于最小限制，跳过: copyTradingId=${copyTrading.id}, amount=$orderAmount, min=${copyTrading.minOrderSize}")
-                                return@withLock PendingOrderResult.Skipped(
-                                    reason = "订单金额 $orderAmount 低于最小限制 ${copyTrading.minOrderSize}",
-                                    filterType = "MIN_ORDER_SIZE"
-                                )
-                            }
-                            if (orderAmount.gt(copyTrading.maxOrderSize)) {
-                                logger.warn("订单金额超过最大限制，调整数量: copyTradingId=${copyTrading.id}, amount=$orderAmount, max=${copyTrading.maxOrderSize}")
-                                // 调整数量到最大值
-                                val adjustedQty = copyTrading.maxOrderSize.div(trade.price.toSafeBigDecimal())
-                                if (adjustedQty.lte(BigDecimal.ZERO)) {
-                                    logger.warn("调整后的数量为0或负数，跳过: copyTradingId=${copyTrading.id}")
-                                    return@withLock PendingOrderResult.Skipped(
-                                        reason = "调整后的数量为0或负数",
-                                        filterType = "INVALID_QUANTITY"
-                                    )
-                                }
-                                finalBuyQuantity = adjustedQty
-                            }
-                        }
-
-                        // 计算买入价格（应用价格容忍度）
-                        val buyPrice = calculateAdjustedPrice(trade.price.toSafeBigDecimal(), copyTrading, isBuy = true)
-
-                        // 检查订单簿中是否有可匹配的订单
-                        val orderbookForCheck = filterResult.orderbook ?: run {
-                            val orderbookResult = clobService.getOrderbookByTokenId(tokenId)
-                            if (orderbookResult.isSuccess) orderbookResult.getOrNull() else null
-                        }
-
-                        if (orderbookForCheck != null) {
-                            val bestAsk = orderbookForCheck.asks
-                                .mapNotNull { it.price.toSafeBigDecimal() }
-                                .minOrNull()
-
-                            if (bestAsk == null) {
-                                logger.warn("订单簿中没有卖单，跳过创建订单: copyTradingId=${copyTrading.id}, tradeId=${trade.id}")
-                                return@withLock PendingOrderResult.Skipped(
-                                    reason = "订单簿中没有卖单",
-                                    filterType = "NO_ASKS_IN_ORDERBOOK"
-                                )
-                            }
-
-                            if (buyPrice.lt(bestAsk)) {
-                                logger.warn("调整后的买入价格 ($buyPrice) 低于最佳卖单价格 ($bestAsk)，无法匹配: copyTradingId=${copyTrading.id}")
-                                return@withLock PendingOrderResult.Skipped(
-                                    reason = "买入价格 $buyPrice 低于最佳卖单价格 $bestAsk，无法匹配",
-                                    filterType = "PRICE_BELOW_BEST_ASK"
-                                )
-                            }
-                        }
-
-                        // 风险控制检查
-                        val riskCheckResult = checkRiskControls(copyTrading)
-                        if (!riskCheckResult.first) {
-                            logger.warn("风险控制检查失败，跳过创建订单: copyTradingId=${copyTrading.id}, reason=${riskCheckResult.second}")
-                            return@withLock PendingOrderResult.Skipped(
-                                reason = riskCheckResult.second ?: "风险控制检查失败",
-                                filterType = "RISK_CONTROL"
-                            )
-                        }
-
-                        // 保存 pending 状态的订单跟踪记录（预占仓位）
-                        // 使用临时 buyOrderId，后续 API 调用成功后会更新
-                        val pendingTracking = CopyOrderTracking(
-                            copyTradingId = copyTrading.id,
-                            accountId = copyTrading.accountId,
-                            leaderId = copyTrading.leaderId,
-                            marketId = trade.market,
-                            side = trade.outcomeIndex.toString(),
-                            outcomeIndex = trade.outcomeIndex,
-                            buyOrderId = "PENDING_${System.currentTimeMillis()}_${copyTrading.id}",  // 临时订单ID
-                            leaderBuyTradeId = trade.id,
-                            leaderBuyQuantity = trade.size.toSafeBigDecimal(),
-                            quantity = finalBuyQuantity,
-                            price = buyPrice,
-                            remainingQuantity = finalBuyQuantity,
-                            status = "pending",  // pending 状态，API 调用成功后更新为 filled
-                            notificationSent = false
-                        )
-
-                        val savedTracking = copyOrderTrackingRepository.save(pendingTracking)
-                        logger.debug("保存 pending 订单记录: trackingId=${savedTracking.id}, copyTradingId=${copyTrading.id}")
-
-                        PendingOrderResult.Success(
-                            trackingId = savedTracking.id!!,
-                            filterResult = filterResult,
-                            buyQuantity = finalBuyQuantity,
-                            buyPrice = buyPrice
+                            tradePrice = tradePrice
                         )
                     }
 
                     // 处理仓位锁内的结果
                     when (pendingResult) {
-                        is PendingOrderResult.FilterFailed -> {
+                        is PendingOrderTransactionService.PendingOrderResult.FilterFailed -> {
                             val filterResult = pendingResult.filterResult
                             logger.warn("过滤条件检查失败，跳过创建订单: copyTradingId=${copyTrading.id}, reason=${filterResult.reason}")
                             handleFilterFailed(copyTrading, account, trade, filterResult)
                             continue
                         }
-                        is PendingOrderResult.Skipped -> {
+                        is PendingOrderTransactionService.PendingOrderResult.Skipped -> {
                             // 记录跳过的订单到 filtered_order 表
                             handleSkipped(copyTrading, account, trade, pendingResult.reason, pendingResult.filterType)
                             continue
                         }
-                        is PendingOrderResult.Success -> {
+                        is PendingOrderTransactionService.PendingOrderResult.Success -> {
                             // 继续执行 API 调用
                             buyQuantity = pendingResult.buyQuantity
                             val orderbook = pendingResult.filterResult.orderbook
                         }
                     }
 
-                    val successResult = pendingResult as PendingOrderResult.Success
+                    val successResult = pendingResult as PendingOrderTransactionService.PendingOrderResult.Success
                     val pendingTrackingId = successResult.trackingId
                     val finalBuyQuantity = successResult.buyQuantity
                     val buyPrice = successResult.buyPrice

@@ -9,6 +9,7 @@ import com.wrbug.polymarketbot.service.copytrading.configs.CopyTradingFilterServ
 import com.wrbug.polymarketbot.service.copytrading.configs.FilterResult
 import com.wrbug.polymarketbot.service.common.PolymarketClobService
 import com.wrbug.polymarketbot.util.*
+import kotlinx.coroutines.runBlocking
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Propagation
@@ -75,13 +76,17 @@ open class PendingOrderTransactionService(
         tradePrice: BigDecimal
     ): PendingOrderResult {
         // 过滤条件检查（包括仓位检查）
-        val filterResult = filterService.checkFilters(
-            copyTrading,
-            tokenId,
-            tradePrice = tradePrice,
-            copyOrderAmount = copyOrderAmount,
-            marketId = trade.market
-        )
+        // 注意：checkFilters 是 suspend 函数，需要使用 runBlocking 调用
+        // 在 REQUIRES_NEW 事务中使用 runBlocking 是安全的，因为事务上下文是线程绑定的
+        val filterResult = runBlocking {
+            filterService.checkFilters(
+                copyTrading,
+                tokenId,
+                tradePrice = tradePrice,
+                copyOrderAmount = copyOrderAmount,
+                marketId = trade.market
+            )
+        }
 
         // 如果过滤检查未通过，直接返回
         if (!filterResult.isPassed) {
@@ -139,9 +144,12 @@ open class PendingOrderTransactionService(
         val buyPrice = calculateAdjustedPrice(tradePrice, copyTrading, isBuy = true)
 
         // 检查订单簿中是否有可匹配的订单
+        // 注意：getOrderbookByTokenId 是 suspend 函数，需要使用 runBlocking 调用
         val orderbookForCheck = filterResult.orderbook ?: run {
-            val orderbookResult = clobService.getOrderbookByTokenId(tokenId)
-            if (orderbookResult.isSuccess) orderbookResult.getOrNull() else null
+            runBlocking {
+                val orderbookResult = clobService.getOrderbookByTokenId(tokenId)
+                if (orderbookResult.isSuccess) orderbookResult.getOrNull() else null
+            }
         }
 
         if (orderbookForCheck != null) {
@@ -179,7 +187,7 @@ open class PendingOrderTransactionService(
         // 保存 pending 状态的订单跟踪记录（预占仓位）
         // 使用临时 buyOrderId，后续 API 调用成功后会更新
         val pendingTracking = CopyOrderTracking(
-            copyTradingId = copyTrading.id,
+            copyTradingId = copyTrading.id!!,
             accountId = copyTrading.accountId,
             leaderId = copyTrading.leaderId,
             marketId = trade.market,

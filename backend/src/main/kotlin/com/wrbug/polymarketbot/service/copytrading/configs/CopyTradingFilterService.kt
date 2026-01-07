@@ -48,42 +48,9 @@ class CopyTradingFilterService(
             }
         }
         
-        // 2. 检查是否需要获取订单簿
-        // 只有在配置了需要订单簿的过滤条件时才获取
-        val needOrderbook = copyTrading.maxSpread != null || copyTrading.minOrderDepth != null
-        
-        if (!needOrderbook) {
-            // 不需要订单簿，直接通过
-            return FilterResult.passed()
-        }
-        
-        // 3. 获取订单簿（仅在需要时，只请求一次）
-        val orderbookResult = clobService.getOrderbookByTokenId(tokenId)
-        if (!orderbookResult.isSuccess) {
-            val error = orderbookResult.exceptionOrNull()
-            return FilterResult.orderbookError("获取订单簿失败: ${error?.message ?: "未知错误"}")
-        }
-        
-        val orderbook = orderbookResult.getOrNull()
-            ?: return FilterResult.orderbookEmpty()
-        
-        // 4. 买一卖一价差过滤（如果配置了）
-        if (copyTrading.maxSpread != null) {
-            val spreadCheck = checkSpread(copyTrading, orderbook)
-            if (!spreadCheck.isPassed) {
-                return FilterResult.spreadFailed(spreadCheck.reason, orderbook)
-            }
-        }
-        
-        // 5. 订单深度过滤（如果配置了，检查所有方向）
-        if (copyTrading.minOrderDepth != null) {
-            val depthCheck = checkOrderDepth(copyTrading, orderbook)
-            if (!depthCheck.isPassed) {
-                return FilterResult.orderDepthFailed(depthCheck.reason, orderbook)
-            }
-        }
-        
-        // 6. 仓位检查（如果配置了最大仓位限制且提供了跟单金额和市场ID）
+        // 2. 仓位检查（优先级最高，必须在其他检查之前）
+        // 如果配置了最大仓位限制且提供了跟单金额和市场ID，先检查仓位
+        // 这是修复：之前仓位检查在订单簿检查之后，如果不需要订单簿会被跳过
         var remainingPositionValue: BigDecimal? = null
         if (copyOrderAmount != null && marketId != null) {
             val positionCheck = checkPositionLimits(copyTrading, copyOrderAmount, marketId)
@@ -91,6 +58,41 @@ class CopyTradingFilterService(
                 return positionCheck
             }
             remainingPositionValue = positionCheck.remainingPositionValue
+        }
+
+        // 3. 检查是否需要获取订单簿
+        // 只有在配置了需要订单簿的过滤条件时才获取
+        val needOrderbook = copyTrading.maxSpread != null || copyTrading.minOrderDepth != null
+
+        if (!needOrderbook) {
+            // 不需要订单簿，返回仓位检查结果
+            return FilterResult.passed(remainingPositionValue = remainingPositionValue)
+        }
+
+        // 4. 获取订单簿（仅在需要时，只请求一次）
+        val orderbookResult = clobService.getOrderbookByTokenId(tokenId)
+        if (!orderbookResult.isSuccess) {
+            val error = orderbookResult.exceptionOrNull()
+            return FilterResult.orderbookError("获取订单簿失败: ${error?.message ?: "未知错误"}")
+        }
+
+        val orderbook = orderbookResult.getOrNull()
+            ?: return FilterResult.orderbookEmpty()
+
+        // 5. 买一卖一价差过滤（如果配置了）
+        if (copyTrading.maxSpread != null) {
+            val spreadCheck = checkSpread(copyTrading, orderbook)
+            if (!spreadCheck.isPassed) {
+                return FilterResult.spreadFailed(spreadCheck.reason, orderbook)
+            }
+        }
+
+        // 6. 订单深度过滤（如果配置了，检查所有方向）
+        if (copyTrading.minOrderDepth != null) {
+            val depthCheck = checkOrderDepth(copyTrading, orderbook)
+            if (!depthCheck.isPassed) {
+                return FilterResult.orderDepthFailed(depthCheck.reason, orderbook)
+            }
         }
 
         return FilterResult.passed(orderbook, remainingPositionValue)

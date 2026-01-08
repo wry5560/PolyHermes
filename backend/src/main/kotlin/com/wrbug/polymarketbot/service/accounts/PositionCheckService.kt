@@ -173,6 +173,7 @@ class PositionCheckService(
      * 根据 positionloop.md 文档要求：
      * 1. 处理待赎回仓位
      * 2. 处理未卖出订单
+     * 3. 修复 FAK 卖出未成交导致的数据不同步（反向协调）
      */
     suspend fun checkPositions(currentPositions: List<AccountPositionDto>) {
         try {
@@ -181,9 +182,13 @@ class PositionCheckService(
             if (redeemablePositions.isNotEmpty()) {
                 checkRedeemablePositions(redeemablePositions)
             }
-            
+
             // 逻辑2：处理未卖出订单（如果没有待赎回仓位或已处理完）
             checkUnmatchedOrders(currentPositions)
+
+            // 逻辑3：反向协调 - 修复 FAK 卖出未成交导致的数据不同步
+            // 场景：DB 显示 remainingQuantity=0（认为全卖了），但实际仓位存在
+            reconcileUnexpectedPositions(currentPositions)
         } catch (e: Exception) {
             logger.error("仓位检查异常: ${e.message}", e)
         }
@@ -831,6 +836,135 @@ class PositionCheckService(
                 message
     }
     
+    /**
+     * 逻辑3：反向协调 - 修复 FAK 卖出未成交导致的数据不同步
+     *
+     * 场景：FAK 卖出订单未成交或部分成交，但数据库已经将 remainingQuantity 设为 0
+     * 表现：DB 显示 remainingQuantity=0（认为全卖了），但实际 Polymarket 仓位存在
+     *
+     * 修复逻辑：
+     * 1. 对于每个实际仓位，查找该市场的所有 "fully_matched" 状态订单
+     * 2. 计算 DB 中的 remainingQuantity 总和
+     * 3. 如果实际仓位 > DB 记录，说明有些卖出订单没有真正成交
+     * 4. 按 LIFO（后进先出）顺序恢复 remainingQuantity
+     */
+    private suspend fun reconcileUnexpectedPositions(currentPositions: List<AccountPositionDto>) {
+        try {
+            // 获取所有启用的跟单配置
+            val allCopyTradings = copyTradingRepository.findAll().filter { it.enabled }
+
+            // 按账户和市场分组当前仓位
+            val positionsByAccountAndMarket = currentPositions.groupBy {
+                "${it.accountId}_${it.marketId}_${it.outcomeIndex ?: 0}"
+            }
+
+            // 遍历所有跟单配置
+            for (copyTrading in allCopyTradings) {
+                // 查找该跟单配置下所有订单（包括 fully_matched）
+                val allOrders = copyOrderTrackingRepository.findByCopyTradingId(copyTrading.id!!)
+                    .sortedByDescending { it.createdAt }  // 按创建时间倒序（LIFO）
+
+                if (allOrders.isEmpty()) {
+                    continue
+                }
+
+                // 按市场分组订单
+                val ordersByMarket = allOrders.groupBy {
+                    "${it.marketId}_${it.outcomeIndex ?: 0}"
+                }
+
+                for ((marketKey, orders) in ordersByMarket) {
+                    // 从订单中获取市场信息
+                    val firstOrder = orders.firstOrNull() ?: continue
+                    val marketId = firstOrder.marketId
+                    val outcomeIndex = firstOrder.outcomeIndex ?: 0
+
+                    // 查找对应的实际仓位
+                    val positionKey = "${copyTrading.accountId}_$marketKey"
+                    val position = positionsByAccountAndMarket[positionKey]?.firstOrNull() ?: continue
+
+                    val actualPositionQuantity = position.quantity.toSafeBigDecimal()
+                    if (actualPositionQuantity <= BigDecimal.ZERO) {
+                        continue
+                    }
+
+                    // 计算 DB 中的 remainingQuantity 总和
+                    val dbTotalRemaining = orders.fold(BigDecimal.ZERO) { sum, order ->
+                        sum.add(order.remainingQuantity.toSafeBigDecimal())
+                    }
+
+                    // 如果实际仓位 > DB 记录，需要恢复 remainingQuantity
+                    val missingQuantity = actualPositionQuantity.subtract(dbTotalRemaining)
+                    if (missingQuantity <= BigDecimal.ZERO) {
+                        // DB 记录 >= 实际仓位，无需修复
+                        continue
+                    }
+
+                    logger.warn(
+                        "检测到 FAK 卖出未成交导致的数据不同步: " +
+                        "copyTradingId=${copyTrading.id}, marketId=$marketId, outcomeIndex=$outcomeIndex, " +
+                        "实际仓位=$actualPositionQuantity, DB记录=$dbTotalRemaining, 缺失=$missingQuantity"
+                    )
+
+                    // 按 LIFO 顺序恢复 remainingQuantity（从最新的订单开始）
+                    // 只恢复 status=fully_matched 且 remainingQuantity=0 的订单
+                    var remainingToRestore = missingQuantity
+                    val fullyMatchedOrders = orders
+                        .filter { it.status == "fully_matched" && it.remainingQuantity <= BigDecimal.ZERO }
+                        .sortedByDescending { it.updatedAt }  // 最近更新的优先（这些更可能是 FAK 未成交的）
+
+                    for (order in fullyMatchedOrders) {
+                        if (remainingToRestore <= BigDecimal.ZERO) {
+                            break
+                        }
+
+                        // 这个订单原本应该有多少 remainingQuantity？
+                        // 计算：原始数量 - 已匹配数量（不包括被误标记的部分）
+                        // 由于我们不知道哪些是真正卖出的，保守恢复整个 quantity
+                        val orderOriginalQuantity = order.quantity.toSafeBigDecimal()
+                        val toRestore = minOf(orderOriginalQuantity, remainingToRestore)
+
+                        if (toRestore > BigDecimal.ZERO) {
+                            // 恢复 remainingQuantity
+                            order.remainingQuantity = order.remainingQuantity.add(toRestore)
+                            order.matchedQuantity = order.matchedQuantity.subtract(toRestore)
+                            if (order.matchedQuantity < BigDecimal.ZERO) {
+                                order.matchedQuantity = BigDecimal.ZERO
+                            }
+
+                            // 更新状态
+                            if (order.remainingQuantity >= orderOriginalQuantity) {
+                                order.status = "filled"  // 完全未卖出
+                            } else {
+                                order.status = "partially_matched"  // 部分卖出
+                            }
+
+                            order.updatedAt = System.currentTimeMillis()
+                            copyOrderTrackingRepository.save(order)
+
+                            logger.info(
+                                "恢复订单 remainingQuantity: orderId=${order.buyOrderId}, " +
+                                "恢复数量=$toRestore, 新remainingQuantity=${order.remainingQuantity}, 新status=${order.status}"
+                            )
+
+                            remainingToRestore = remainingToRestore.subtract(toRestore)
+                        }
+                    }
+
+                    if (remainingToRestore > BigDecimal.ZERO) {
+                        // 还有剩余未能恢复的数量，可能是订单记录不完整
+                        logger.warn(
+                            "反向协调后仍有未恢复的仓位: copyTradingId=${copyTrading.id}, " +
+                            "marketId=$marketId, 未恢复数量=$remainingToRestore"
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            logger.error("反向协调异常: ${e.message}", e)
+        }
+    }
+
     /**
      * 掩码地址（只显示前6位和后4位）
      */

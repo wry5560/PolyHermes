@@ -900,7 +900,64 @@ open class CopyOrderTrackingService(
 
         val realSellOrderId = createOrderResult.getOrNull() ?: return
 
-        // 12. 下单时直接使用下单价格保存，等待定时任务更新实际成交价
+        // 12. FAK 订单实际成交量验证（关键修复）
+        // FAK (Fill-And-Kill) 订单可能只部分成交或完全不成交
+        // 必须查询实际成交量，只按实际成交数量更新数据库
+        var actualSizeMatched = totalMatched  // 默认假设全部成交
+        var actualSellPrice = sellPrice  // 默认使用下单价格
+
+        // 只有 0x 开头的订单才查询实际成交量
+        if (realSellOrderId.startsWith("0x", ignoreCase = true)) {
+            // 等待 2 秒让 FAK 订单完成成交
+            delay(2000)
+
+            try {
+                val orderResponse = clobApi.getOrder(realSellOrderId)
+                if (orderResponse.isSuccessful && orderResponse.body() != null) {
+                    val orderDetail = orderResponse.body()!!
+                    val sizeMatched = orderDetail.sizeMatched.toSafeBigDecimal()
+
+                    logger.info("FAK 卖出订单实际成交量: orderId=$realSellOrderId, 计划数量=$totalMatched, 实际成交=$sizeMatched, status=${orderDetail.status}")
+
+                    // 如果实际成交量为 0，跳过所有数据库更新
+                    if (sizeMatched <= BigDecimal.ZERO) {
+                        logger.warn("FAK 卖出订单未成交，跳过更新数据库: orderId=$realSellOrderId, copyTradingId=${copyTrading.id}")
+                        return
+                    }
+
+                    actualSizeMatched = sizeMatched
+
+                    // 尝试获取实际成交价
+                    val executionPrice = getActualExecutionPrice(realSellOrderId, clobApi, sellPrice)
+                    actualSellPrice = executionPrice
+                } else {
+                    // 查询失败，记录警告但继续使用计划数量（兼容性处理）
+                    val errorBody = orderResponse.errorBody()?.string()?.take(200) ?: "无错误详情"
+                    logger.warn("查询 FAK 订单详情失败，使用计划数量: orderId=$realSellOrderId, code=${orderResponse.code()}, errorBody=$errorBody")
+                }
+            } catch (e: Exception) {
+                logger.warn("查询 FAK 订单详情异常，使用计划数量: orderId=$realSellOrderId, error=${e.message}")
+            }
+        }
+
+        // 13. 计算实际成交比例，按比例调整匹配明细
+        val fillRatio = if (totalMatched > BigDecimal.ZERO) {
+            actualSizeMatched.div(totalMatched)
+        } else {
+            BigDecimal.ONE
+        }
+
+        // 如果成交比例小于 1，需要按比例调整 matchDetails
+        val adjustedMatchDetails = if (fillRatio < BigDecimal.ONE) {
+            logger.info("FAK 订单部分成交，按比例调整匹配明细: fillRatio=$fillRatio, 原始数量=$totalMatched, 实际数量=$actualSizeMatched")
+            matchDetails.map { detail ->
+                val adjustedQuantity = detail.matchedQuantity.multi(fillRatio)
+                detail.copy(matchedQuantity = adjustedQuantity)
+            }
+        } else {
+            matchDetails
+        }
+
         // priceUpdated 统一由定时任务更新，下单时统一设置为 false（非0x开头的除外）
         val priceUpdated = !realSellOrderId.startsWith("0x", ignoreCase = true)
         if (priceUpdated) {
@@ -908,25 +965,21 @@ open class CopyOrderTrackingService(
         } else {
             logger.debug("卖出订单ID为0x开头，等待定时任务更新价格: orderId=$realSellOrderId")
         }
-        
-        // 使用下单价格，等待定时任务更新实际成交价
-        val actualSellPrice = sellPrice
 
-        // 13. 更新买入订单跟踪状态
+        // 14. 更新买入订单跟踪状态（使用实际成交数量）
         for (order in unmatchedOrders) {
-            val detail = matchDetails.find { it.trackingId == order.id }
-            if (detail != null) {
+            val detail = adjustedMatchDetails.find { it.trackingId == order.id }
+            if (detail != null && detail.matchedQuantity > BigDecimal.ZERO) {
                 order.matchedQuantity = order.matchedQuantity.add(detail.matchedQuantity)
                 order.remainingQuantity = order.remainingQuantity.subtract(detail.matchedQuantity)
                 updateOrderStatus(order)
                 order.updatedAt = System.currentTimeMillis()
                 copyOrderTrackingRepository.save(order)
-
             }
         }
 
-        // 14. 重新计算盈亏（使用实际成交价）
-        val updatedMatchDetails = matchDetails.map { detail ->
+        // 15. 重新计算盈亏（使用实际成交价和实际数量）
+        val updatedMatchDetails = adjustedMatchDetails.map { detail ->
             val updatedRealizedPnl = actualSellPrice.subtract(detail.buyPrice).multi(detail.matchedQuantity)
             detail.copy(
                 sellPrice = actualSellPrice,
@@ -934,7 +987,7 @@ open class CopyOrderTrackingService(
             )
         }
 
-        // 15. 创建卖出匹配记录（使用真实订单ID和实际成交价）
+        // 16. 创建卖出匹配记录（使用真实订单ID、实际成交价和实际成交量）
         val totalRealizedPnl = updatedMatchDetails.sumOf { it.realizedPnl.toSafeBigDecimal() }
 
         val matchRecord = SellMatchRecord(
@@ -944,7 +997,7 @@ open class CopyOrderTrackingService(
             marketId = leaderSellTrade.market,
             side = leaderSellTrade.outcomeIndex.toString(),  // 使用outcomeIndex作为side（兼容旧数据）
             outcomeIndex = leaderSellTrade.outcomeIndex,  // 新增字段
-            totalMatchedQuantity = totalMatched,
+            totalMatchedQuantity = actualSizeMatched,  // 使用实际成交数量（关键修复）
             sellPrice = actualSellPrice,  // 使用实际成交价（如果查询失败则为下单价格）
             totalRealizedPnl = totalRealizedPnl,
             priceUpdated = priceUpdated  // 共用字段：false 表示未处理（未查询订单详情，未发送通知），true 表示已处理（已查询订单详情，已发送通知）
@@ -952,13 +1005,15 @@ open class CopyOrderTrackingService(
 
         val savedRecord = sellMatchRecordRepository.save(matchRecord)
 
-        // 16. 保存匹配明细（使用实际成交价）
+        // 17. 保存匹配明细（使用实际成交价和实际数量）
         for (detail in updatedMatchDetails) {
-            val savedDetail = detail.copy(matchRecordId = savedRecord.id!!)
-            sellMatchDetailRepository.save(savedDetail)
+            if (detail.matchedQuantity > BigDecimal.ZERO) {
+                val savedDetail = detail.copy(matchRecordId = savedRecord.id!!)
+                sellMatchDetailRepository.save(savedDetail)
+            }
         }
-        
-        logger.info("卖出订单已保存，等待轮询任务获取实际数据后发送通知: orderId=$realSellOrderId, copyTradingId=${copyTrading.id}")
+
+        logger.info("卖出订单已保存: orderId=$realSellOrderId, copyTradingId=${copyTrading.id}, 计划数量=$totalMatched, 实际成交=$actualSizeMatched")
 
     }
 

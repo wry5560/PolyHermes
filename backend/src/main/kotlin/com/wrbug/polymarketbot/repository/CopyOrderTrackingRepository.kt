@@ -1,7 +1,9 @@
 package com.wrbug.polymarketbot.repository
 
 import com.wrbug.polymarketbot.entity.CopyOrderTracking
+import jakarta.persistence.LockModeType
 import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.jpa.repository.Lock
 import org.springframework.data.jpa.repository.Query
 import org.springframework.stereotype.Repository
 import java.math.BigDecimal
@@ -83,6 +85,21 @@ interface CopyOrderTrackingRepository : JpaRepository<CopyOrderTracking, Long> {
         AND t.status != 'fully_matched'
     """)
     fun sumActivePositionValue(copyTradingId: Long, marketId: String): BigDecimal
+
+    /**
+     * 计算某个跟单配置在某个市场的活跃仓位总金额（带悲观锁）
+     * 使用 SELECT FOR UPDATE 锁定相关记录，防止并发订单绕过仓位限制
+     * 在高并发场景下，确保同一 copyTradingId + marketId 的仓位检查串行执行
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+        SELECT COALESCE(SUM(t.remainingQuantity * t.price), 0)
+        FROM CopyOrderTracking t
+        WHERE t.copyTradingId = :copyTradingId
+        AND t.marketId = :marketId
+        AND t.status != 'fully_matched'
+    """)
+    fun sumActivePositionValueWithLock(copyTradingId: Long, marketId: String): BigDecimal
 
     /**
      * 统计某个跟单配置在某个市场的活跃仓位数量（用于最大仓位数量检查）

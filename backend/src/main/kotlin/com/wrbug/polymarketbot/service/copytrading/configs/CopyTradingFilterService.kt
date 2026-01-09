@@ -235,9 +235,10 @@ class CopyTradingFilterService(
 
             // 检查最大仓位金额（如果配置了）
             if (copyTrading.maxPositionValue != null) {
-                // 从本地数据库查询该跟单配置在该市场的活跃仓位总金额
+                // 从本地数据库查询该跟单配置在该市场的活跃仓位总金额（带悲观锁）
+                // 使用 sumActivePositionValueWithLock 防止并发订单绕过仓位限制
                 // 活跃仓位 = 状态不为 fully_matched 的订单
-                val currentPositionValue = copyOrderTrackingRepository.sumActivePositionValue(copyTradingId, marketId)
+                val currentPositionValue = copyOrderTrackingRepository.sumActivePositionValueWithLock(copyTradingId, marketId)
 
                 // 计算剩余可用金额
                 remainingValue = copyTrading.maxPositionValue.subtract(currentPositionValue)

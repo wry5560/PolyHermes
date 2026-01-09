@@ -931,12 +931,16 @@ open class CopyOrderTrackingService(
                     val executionPrice = getActualExecutionPrice(realSellOrderId, clobApi, sellPrice)
                     actualSellPrice = executionPrice
                 } else {
-                    // 查询失败，记录警告但继续使用计划数量（兼容性处理）
+                    // 查询失败，保守处理：假设未成交，不更新 DB
+                    // 重要修复：之前使用计划数量继续执行，导致 remainingQuantity 被错误减少
                     val errorBody = orderResponse.errorBody()?.string()?.take(200) ?: "无错误详情"
-                    logger.warn("查询 FAK 订单详情失败，使用计划数量: orderId=$realSellOrderId, code=${orderResponse.code()}, errorBody=$errorBody")
+                    logger.warn("查询 FAK 订单详情失败，保守处理（假设未成交），跳过 DB 更新: orderId=$realSellOrderId, code=${orderResponse.code()}, errorBody=$errorBody")
+                    return
                 }
             } catch (e: Exception) {
-                logger.warn("查询 FAK 订单详情异常，使用计划数量: orderId=$realSellOrderId, error=${e.message}")
+                // 查询异常，保守处理：假设未成交，不更新 DB
+                logger.warn("查询 FAK 订单详情异常，保守处理（假设未成交），跳过 DB 更新: orderId=$realSellOrderId, error=${e.message}")
+                return
             }
         }
 

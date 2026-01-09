@@ -186,6 +186,8 @@ open class PendingOrderTransactionService(
 
         // 保存 pending 状态的订单跟踪记录（预占仓位）
         // 使用临时 buyOrderId，后续 API 调用成功后会更新
+        // 重要修复：使用 tradePrice（Leader 原始交易价格）而非 buyPrice（调整后价格）
+        // 这样仓位计算 (remainingQuantity × price) 更接近实际成本
         val pendingTracking = CopyOrderTracking(
             copyTradingId = copyTrading.id!!,
             accountId = copyTrading.accountId,
@@ -197,7 +199,7 @@ open class PendingOrderTransactionService(
             leaderBuyTradeId = trade.id,
             leaderBuyQuantity = trade.size.toSafeBigDecimal(),
             quantity = finalBuyQuantity,
-            price = buyPrice,
+            price = tradePrice,  // 使用 Leader 原始交易价格，而非调整后的 buyPrice
             remainingQuantity = finalBuyQuantity,
             status = "pending",  // pending 状态，API 调用成功后更新为 filled
             notificationSent = false

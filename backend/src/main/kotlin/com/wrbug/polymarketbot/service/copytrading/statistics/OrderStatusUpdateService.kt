@@ -669,14 +669,20 @@ class OrderStatusUpdateService(
                         continue
                     }
                     
-                    // 获取实际价格和数量
+                    // 获取实际价格和成交数量
+                    // 重要修复：使用 sizeMatched（实际成交数量）而非 originalSize（下单数量）
                     val actualPrice = orderDetail.price?.toSafeBigDecimal() ?: order.price
-                    val actualSize = orderDetail.originalSize?.toSafeBigDecimal() ?: order.quantity
+                    val actualSizeMatched = orderDetail.sizeMatched?.toSafeBigDecimal() ?: order.quantity
                     val actualOutcome = orderDetail.outcome
-                    
+
+                    // 计算新的 remainingQuantity = 实际成交量 - 已匹配卖出量
+                    // 这是关键修复：之前 remainingQuantity 没有更新，导致仓位计算错误
+                    val newRemainingQuantity = actualSizeMatched.subtract(order.matchedQuantity)
+                        .coerceAtLeast(BigDecimal.ZERO)
+
                     // 更新订单数据（如果实际数据与临时数据不同）
-                    val needUpdate = actualPrice != order.price || actualSize != order.quantity
-                    
+                    val needUpdate = actualPrice != order.price || actualSizeMatched != order.quantity || newRemainingQuantity != order.remainingQuantity
+
                     // 创建更新后的订单对象
                     val updatedOrder = CopyOrderTracking(
                         id = order.id,
@@ -688,10 +694,10 @@ class OrderStatusUpdateService(
                         outcomeIndex = order.outcomeIndex,
                         buyOrderId = order.buyOrderId,
                         leaderBuyTradeId = order.leaderBuyTradeId,
-                        quantity = actualSize,  // 使用实际数量
+                        quantity = actualSizeMatched,  // 使用实际成交数量
                         price = actualPrice,  // 使用实际价格
                         matchedQuantity = order.matchedQuantity,
-                        remainingQuantity = order.remainingQuantity,
+                        remainingQuantity = newRemainingQuantity,  // 同步更新剩余数量
                         status = order.status,
                         notificationSent = true,  // 标记为已发送通知
                         createdAt = order.createdAt,
@@ -702,16 +708,16 @@ class OrderStatusUpdateService(
                     copyOrderTrackingRepository.save(updatedOrder)
                     
                     if (needUpdate) {
-                        logger.info("更新买入订单数据成功: orderId=${order.buyOrderId}, 原价格=${order.price}, 新价格=$actualPrice, 原数量=${order.quantity}, 新数量=$actualSize")
+                        logger.info("更新买入订单数据成功: orderId=${order.buyOrderId}, 原价格=${order.price}, 新价格=$actualPrice, 原数量=${order.quantity}, 新数量=$actualSizeMatched, 原剩余=${order.remainingQuantity}, 新剩余=$newRemainingQuantity")
                     } else {
                         logger.debug("买入订单数据无需更新: orderId=${order.buyOrderId}")
                     }
-                    
+
                     // 发送通知（使用实际数据）
                     sendBuyOrderNotification(
                         order = updatedOrder,
                         actualPrice = actualPrice.toString(),
-                        actualSize = actualSize.toString(),
+                        actualSize = actualSizeMatched.toString(),
                         actualOutcome = actualOutcome,
                         account = account,
                         copyTrading = copyTrading,

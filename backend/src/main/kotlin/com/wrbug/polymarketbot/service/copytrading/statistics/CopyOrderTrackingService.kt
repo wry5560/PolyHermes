@@ -892,9 +892,18 @@ open class CopyOrderTrackingService(
         )
 
         if (createOrderResult.isFailure) {
-            // 创建订单失败，记录错误日志
+            // 创建订单失败，记录错误日志并发送通知
             val exception = createOrderResult.exceptionOrNull()
             logger.error("创建卖出订单失败: copyTradingId=${copyTrading.id}, tradeId=${leaderSellTrade.id}, error=${exception?.message}")
+            handleSellOrderFailure(
+                copyTrading = copyTrading,
+                account = account,
+                trade = leaderSellTrade,
+                errorMessage = exception?.message ?: "创建订单失败",
+                sellPrice = sellPrice,
+                sellQuantity = totalMatched,
+                filterType = "API_FAILURE"
+            )
             return
         }
 
@@ -919,9 +928,18 @@ open class CopyOrderTrackingService(
 
                     logger.info("FAK 卖出订单实际成交量: orderId=$realSellOrderId, 计划数量=$totalMatched, 实际成交=$sizeMatched, status=${orderDetail.status}")
 
-                    // 如果实际成交量为 0，跳过所有数据库更新
+                    // 如果实际成交量为 0，跳过所有数据库更新并发送通知
                     if (sizeMatched <= BigDecimal.ZERO) {
                         logger.warn("FAK 卖出订单未成交，跳过更新数据库: orderId=$realSellOrderId, copyTradingId=${copyTrading.id}")
+                        handleSellOrderFailure(
+                            copyTrading = copyTrading,
+                            account = account,
+                            trade = leaderSellTrade,
+                            errorMessage = "FAK 订单未成交，订单状态: ${orderDetail.status}",
+                            sellPrice = sellPrice,
+                            sellQuantity = totalMatched,
+                            filterType = "FAK_NOT_FILLED"
+                        )
                         return
                     }
 
@@ -1599,6 +1617,36 @@ open class CopyOrderTrackingService(
 
                 filteredOrderRepository.save(filteredOrder)
                 logger.info("已记录跳过的订单: copyTradingId=${copyTrading.id}, tradeId=${trade.id}, filterType=$filterType, reason=$reason")
+
+                // 发送 Telegram 通知
+                val locale = try {
+                    org.springframework.context.i18n.LocaleContextHolder.getLocale()
+                } catch (e: Exception) {
+                    java.util.Locale("zh", "CN")
+                }
+
+                // 获取 Leader 和跟单配置信息
+                val leader = leaderRepository.findById(copyTrading.leaderId).orElse(null)
+                val leaderName = leader?.leaderName
+                val configName = copyTrading.configName
+
+                telegramNotificationService?.sendOrderFilteredNotification(
+                    marketTitle = marketTitle,
+                    marketId = trade.market,
+                    marketSlug = marketSlug,
+                    side = "BUY",
+                    outcome = trade.outcome,
+                    price = trade.price,
+                    size = trade.size,
+                    filterReason = reason,
+                    filterType = filterType,
+                    accountName = account.accountName,
+                    walletAddress = account.walletAddress,
+                    locale = locale,
+                    leaderName = leaderName,
+                    configName = configName,
+                    notificationConfigId = copyTrading.notificationConfigId
+                )
             } catch (e: Exception) {
                 logger.error("保存跳过订单记录失败: ${e.message}", e)
             }
@@ -1660,6 +1708,36 @@ open class CopyOrderTrackingService(
 
                 filteredOrderRepository.save(filteredOrder)
                 logger.info("已记录 API 失败订单: copyTradingId=${copyTrading.id}, tradeId=${trade.id}, error=$errorMessage")
+
+                // 发送 Telegram 通知
+                val locale = try {
+                    org.springframework.context.i18n.LocaleContextHolder.getLocale()
+                } catch (e: Exception) {
+                    java.util.Locale("zh", "CN")
+                }
+
+                // 获取 Leader 和跟单配置信息
+                val leader = leaderRepository.findById(copyTrading.leaderId).orElse(null)
+                val leaderName = leader?.leaderName
+                val configName = copyTrading.configName
+
+                telegramNotificationService?.sendOrderFilteredNotification(
+                    marketTitle = marketTitle,
+                    marketId = trade.market,
+                    marketSlug = marketSlug,
+                    side = "BUY",
+                    outcome = trade.outcome,
+                    price = trade.price,
+                    size = trade.size,
+                    filterReason = errorMessage,
+                    filterType = "API_FAILURE",
+                    accountName = account.accountName,
+                    walletAddress = account.walletAddress,
+                    locale = locale,
+                    leaderName = leaderName,
+                    configName = configName,
+                    notificationConfigId = copyTrading.notificationConfigId
+                )
             } catch (e: Exception) {
                 logger.error("保存 API 失败订单记录失败: ${e.message}", e)
             }
@@ -1766,6 +1844,98 @@ open class CopyOrderTrackingService(
                 )
             } catch (e: Exception) {
                 logger.error("处理被过滤订单通知失败: ${e.message}", e)
+            }
+        }
+    }
+
+    /**
+     * 处理 SELL 订单失败
+     * 记录失败原因到 filtered_order 表并发送 Telegram 通知
+     */
+    private fun handleSellOrderFailure(
+        copyTrading: CopyTrading,
+        account: com.wrbug.polymarketbot.entity.Account,
+        trade: TradeResponse,
+        errorMessage: String,
+        sellPrice: BigDecimal,
+        sellQuantity: BigDecimal,
+        filterType: String
+    ) {
+        // 异步记录，不阻塞主流程
+        notificationScope.launch {
+            try {
+                // 获取市场信息
+                val marketInfo = withContext(Dispatchers.IO) {
+                    try {
+                        val gammaApi = retrofitFactory.createGammaApi()
+                        val marketResponse = gammaApi.listMarkets(conditionIds = listOf(trade.market))
+                        if (marketResponse.isSuccessful && marketResponse.body() != null) {
+                            marketResponse.body()!!.firstOrNull()
+                        } else {
+                            null
+                        }
+                    } catch (e: Exception) {
+                        logger.warn("获取市场信息失败: ${e.message}")
+                        null
+                    }
+                }
+
+                val marketTitle = marketInfo?.question ?: trade.market
+                val marketSlug = marketInfo?.slug
+
+                // 记录到数据库
+                val filteredOrder = FilteredOrder(
+                    copyTradingId = copyTrading.id!!,
+                    accountId = copyTrading.accountId,
+                    leaderId = copyTrading.leaderId,
+                    leaderTradeId = trade.id,
+                    marketId = trade.market,
+                    marketTitle = marketTitle,
+                    marketSlug = marketSlug,
+                    side = "SELL",
+                    outcomeIndex = trade.outcomeIndex,
+                    outcome = trade.outcome,
+                    price = sellPrice,
+                    size = trade.size.toSafeBigDecimal(),
+                    calculatedQuantity = sellQuantity,
+                    filterReason = errorMessage,
+                    filterType = filterType
+                )
+
+                filteredOrderRepository.save(filteredOrder)
+                logger.info("已记录 SELL 订单失败: copyTradingId=${copyTrading.id}, tradeId=${trade.id}, filterType=$filterType, error=$errorMessage")
+
+                // 发送 Telegram 通知
+                val locale = try {
+                    org.springframework.context.i18n.LocaleContextHolder.getLocale()
+                } catch (e: Exception) {
+                    java.util.Locale("zh", "CN")
+                }
+
+                // 获取 Leader 和跟单配置信息
+                val leader = leaderRepository.findById(copyTrading.leaderId).orElse(null)
+                val leaderName = leader?.leaderName
+                val configName = copyTrading.configName
+
+                telegramNotificationService?.sendOrderFilteredNotification(
+                    marketTitle = marketTitle,
+                    marketId = trade.market,
+                    marketSlug = marketSlug,
+                    side = "SELL",
+                    outcome = trade.outcome,
+                    price = sellPrice.toString(),
+                    size = trade.size,
+                    filterReason = errorMessage,
+                    filterType = filterType,
+                    accountName = account.accountName,
+                    walletAddress = account.walletAddress,
+                    locale = locale,
+                    leaderName = leaderName,
+                    configName = configName,
+                    notificationConfigId = copyTrading.notificationConfigId
+                )
+            } catch (e: Exception) {
+                logger.error("保存 SELL 订单失败记录失败: ${e.message}", e)
             }
         }
     }

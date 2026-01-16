@@ -23,7 +23,8 @@ import java.util.concurrent.ConcurrentHashMap
 class CopyTradingPollingService(
     private val copyOrderTrackingService: CopyOrderTrackingService,
     private val retrofitFactory: RetrofitFactory,
-    private val templateRepository: CopyTradingTemplateRepository
+    private val templateRepository: CopyTradingTemplateRepository,
+    private val leaderActivityService: LeaderActivityService
 ) {
     
     private val logger = LoggerFactory.getLogger(CopyTradingPollingService::class.java)
@@ -199,13 +200,13 @@ class CopyTradingPollingService(
             // 创建 Data API 客户端（不需要认证）
             val dataApi = retrofitFactory.createDataApi()
             
-            // 查询用户活动（只查询交易类型，不使用 start 字段）
+            // 查询用户活动（查询所有类型：TRADE, SPLIT, MERGE, REDEEM 等）
             // 查询最近的数据（limit=100），通过 diff 找出增量
             val response: Response<List<UserActivityResponse>> = dataApi.getUserActivity(
                 user = leaderAddress,
                 limit = 100,  // 每次最多查询100条
                 offset = 0,
-                type = listOf("TRADE"),  // 只查询交易类型
+                type = null,  // 不限制类型，查询所有活动（包括 TRADE, SPLIT, MERGE, REDEEM 等）
                 start = null,  // 不使用 start 字段
                 sortBy = "TIMESTAMP",
                 sortDirection = "DESC"  // 按时间戳降序，最新的在前
@@ -217,19 +218,22 @@ class CopyTradingPollingService(
             }
             
             val activities = response.body()!!
-            
-            // 将 UserActivityResponse 转换为 TradeResponse
-            val allTrades = activities.mapNotNull { activity ->
-                // 只处理交易类型
-                if (activity.type != "TRADE" || activity.side == null || activity.price == null || activity.size == null) {
-                    return@mapNotNull null
-                }
-                
-                // 转换为 TradeResponse
+
+            // 生成活动的唯一ID（用于去重）
+            fun getActivityId(activity: UserActivityResponse): String {
+                return activity.transactionHash ?: "${activity.timestamp}_${activity.conditionId}_${activity.type}"
+            }
+
+            // 分离 TRADE 和非 TRADE 活动
+            val tradeActivities = activities.filter { it.type == "TRADE" && it.side != null && it.price != null && it.size != null }
+            val nonTradeActivities = activities.filter { it.type != "TRADE" }
+
+            // 将 TRADE 类型的 UserActivityResponse 转换为 TradeResponse
+            val allTrades = tradeActivities.map { activity ->
                 TradeResponse(
-                    id = activity.transactionHash ?: "${activity.timestamp}_${activity.conditionId}",
+                    id = getActivityId(activity),
                     market = activity.conditionId,
-                    side = activity.side,  // BUY 或 SELL
+                    side = activity.side!!,  // BUY 或 SELL
                     price = activity.price.toString(),
                     size = activity.size.toString(),
                     timestamp = activity.timestamp.toString(),  // 时间戳（秒）
@@ -238,47 +242,59 @@ class CopyTradingPollingService(
                     outcome = activity.outcome  // 结果名称
                 )
             }
-            
+
+            // 所有活动的ID（用于缓存）
+            val allActivityIds = activities.map { getActivityId(it) }.toSet()
+
             if (firstPoll) {
-                // 首次轮询：缓存所有查询到的交易ID，不处理
-                val tradeIds = allTrades.map { it.id }.toSet()
-                cachedIds.addAll(tradeIds)
+                // 首次轮询：缓存所有查询到的活动ID，不处理
+                cachedIds.addAll(allActivityIds)
                 cachedTradeIds[leaderId] = cachedIds
-                
+
                 // 标记首次轮询完成
                 isFirstPoll[leaderId] = false
             } else {
-                // 后续轮询：通过 diff 找出新增的交易
-                val newTradeIds = allTrades.map { it.id }.toSet()
-                val incrementalTradeIds = newTradeIds - cachedIds
-                
-                if (incrementalTradeIds.isNotEmpty()) {
-                    // 找出新增的交易
-                    val incrementalTrades = allTrades.filter { it.id in incrementalTradeIds }
-                    
-                    
-                    // 处理新增的交易
+                // 后续轮询：通过 diff 找出新增的活动
+                val incrementalActivityIds = allActivityIds - cachedIds
+
+                if (incrementalActivityIds.isNotEmpty()) {
+                    // 处理新增的 TRADE 活动（跟单）
+                    val incrementalTrades = allTrades.filter { it.id in incrementalActivityIds }
                     incrementalTrades.forEach { trade ->
                         try {
-                            // 检查是否已处理（去重由processTrade内部处理）
+                            // 跟单处理（去重由 processTrade 内部处理）
                             copyOrderTrackingService.processTrade(leaderId, trade, "polling")
                         } catch (e: Exception) {
                             logger.error("处理交易失败: leaderId=$leaderId, tradeId=${trade.id}", e)
                         }
                     }
-                    
-                    // 更新缓存：添加新增的交易ID
-                    cachedIds.addAll(incrementalTradeIds)
+
+                    // 记录新增的非 TRADE 活动（SPLIT, MERGE, REDEEM 等）到数据库
+                    val incrementalNonTrades = nonTradeActivities.filter { getActivityId(it) in incrementalActivityIds }
+                    if (incrementalNonTrades.isNotEmpty()) {
+                        val recordedCount = leaderActivityService.recordActivities(leaderId, incrementalNonTrades, "polling")
+                        if (recordedCount > 0) {
+                            logger.info("记录 Leader 非交易活动: leaderId={}, count={}, types={}",
+                                leaderId, recordedCount, incrementalNonTrades.map { it.type }.distinct())
+                        }
+                    }
+
+                    // 同时记录 TRADE 活动到活动记录表（用于完整的活动历史）
+                    val incrementalTradeActivities = tradeActivities.filter { getActivityId(it) in incrementalActivityIds }
+                    if (incrementalTradeActivities.isNotEmpty()) {
+                        leaderActivityService.recordActivities(leaderId, incrementalTradeActivities, "polling")
+                    }
+
+                    // 更新缓存：添加新增的活动ID
+                    cachedIds.addAll(incrementalActivityIds)
                     cachedTradeIds[leaderId] = cachedIds
-                    
-                } else {
                 }
-                
+
                 // 限制缓存大小，避免内存溢出（只保留最近1000条）
                 if (cachedIds.size > 1000) {
                     // 保留最新的1000条（由于查询是按时间戳降序，保留前1000条即可）
-                    val sortedTradeIds = allTrades.map { it.id }.take(1000).toSet()
-                    cachedTradeIds[leaderId] = sortedTradeIds.toMutableSet()
+                    val sortedActivityIds = activities.map { getActivityId(it) }.take(1000).toSet()
+                    cachedTradeIds[leaderId] = sortedActivityIds.toMutableSet()
                 }
             }
         } catch (e: Exception) {
